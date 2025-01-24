@@ -1,36 +1,31 @@
+// src/App.js
 import React from 'react';
-import './App.css'; // Optional if you're using external CSS
+import './App.css'; // Optional if you have external/global CSS
 
-function Choice({ 
-  label, 
-  percentage, 
-  isSelected, 
-  showResults, 
-  onSelect 
-}) {
+/**
+ * A single clickable "Side" (A/B) with a fill meter.
+ */
+function Choice({ label, percentage, isSelected, showResults, onSelect }) {
   const [isHovered, setIsHovered] = React.useState(false);
 
-  // If we haven't revealed results, the fill is 0% width.
-  // Otherwise, fill it to `percentage`.
+  // If results aren't revealed yet, fill is 0%. Otherwise, fill to `percentage`.
   const fillWidth = showResults ? `${percentage}%` : '0%';
 
-  // Light/darker gray hover effect
+  // Gray hover effect
   const baseBackground = '#f3f3f3';
   const hoverBackground = '#e0e0e0';
   const backgroundColor = isHovered ? hoverBackground : baseBackground;
 
   /**
-   * Opacity logic for the fill bar:
-   * - showResults === false => fillOpacity = 0 (width=0% anyway)
-   * - showResults === true & isSelected => 1
-   * - showResults === true & !isSelected => 0.4
+   * Fill opacity logic:
+   * - No results => fillOpacity = 0
+   * - Results + selected => 1.0
+   * - Results + not selected => 0.4
    */
-  const fillOpacity = showResults
-    ? (isSelected ? 1 : 0.4)
-    : 0;
+  const fillOpacity = showResults ? (isSelected ? 1 : 0.4) : 0;
 
-  // Convert #dbeafe to RGBA with dynamic opacity
-  const fillColor = `rgba(219, 234, 254, ${fillOpacity})`; // #dbeafe
+  // Convert #dbeafe (light blue) to RGBA w/ dynamic opacity
+  const fillColor = `rgba(219, 234, 254, ${fillOpacity})`;
 
   return (
     <div
@@ -47,7 +42,7 @@ function Choice({
         overflow: 'hidden',
         backgroundColor,
         transition: 'background-color 0.2s ease',
-        textAlign: 'left', // left-align our text
+        textAlign: 'left',
       }}
     >
       {/* Meter fill */}
@@ -64,8 +59,7 @@ function Choice({
         }}
       />
 
-      {/* Label on top (left-aligned). 
-          We split label and (xx%) so the label doesn't jump if showResults toggles. */}
+      {/* Label on top (split out so the label doesn't jump when percentages show) */}
       <div style={{ position: 'relative', zIndex: 1 }}>
         <span>{label}</span>
         <span 
@@ -81,10 +75,21 @@ function Choice({
   );
 }
 
-function PollChoices({ selectedChoice, resultsRevealed, onSelectChoice }) {
+/**
+ * The container for "Side A" and "Side B."
+ * We pass in "propSideAPct", "propSideBPct" from the parent.
+ */
+function PropChoices({
+  selectedChoice,
+  resultsRevealed,
+  onSelectChoice,
+  propSideAPct,
+  propSideBPct
+}) {
+  // We'll have 2 choices: "Side A" and "Side B"
   const choices = [
-    { value: 'yes', label: 'Yes', percentage: 44 },
-    { value: 'no',  label: 'Not Happening', percentage: 56 },
+    { value: 'A', label: 'Side A', percentage: propSideAPct },
+    { value: 'B', label: 'Side B', percentage: propSideBPct },
   ];
 
   return (
@@ -103,11 +108,14 @@ function PollChoices({ selectedChoice, resultsRevealed, onSelectChoice }) {
   );
 }
 
+/**
+ * Phone number form: side-by-side input & button
+ */
 function PhoneNumberForm({ phoneNumber, onSubmit }) {
   const [localPhone, setLocalPhone] = React.useState(phoneNumber);
 
   const handleSend = () => {
-    // In a real app, you'd call a backend or Twilio here.
+    // In a real app, you'd call your server/Twilio here.
     onSubmit(localPhone);
   };
 
@@ -122,7 +130,7 @@ function PhoneNumberForm({ phoneNumber, onSubmit }) {
           value={localPhone}
           onChange={(e) => setLocalPhone(e.target.value)}
           placeholder="(602) 380-2794"
-          style={{ flex: '1' }}
+          style={{ flex: 1 }}
         />
         <button onClick={handleSend}>Send Verification Code</button>
       </div>
@@ -130,11 +138,14 @@ function PhoneNumberForm({ phoneNumber, onSubmit }) {
   );
 }
 
+/**
+ * Verification code form
+ */
 function VerificationForm({ phoneNumber, verificationCode, onSubmit, onResend }) {
   const [localCode, setLocalCode] = React.useState(verificationCode);
 
   const handleVerify = () => {
-    // In a real app, you'd call your backend or Twilio to verify the code.
+    // In a real app, you'd verify with Twilio.
     onSubmit(localCode);
   };
 
@@ -161,23 +172,48 @@ function VerificationForm({ phoneNumber, verificationCode, onSubmit, onResend })
   );
 }
 
+/**
+ * Main widget that loads "Prop" data from /api/prop?propID=xxx
+ * Toggling logic for Side A/B, plus phone verification steps
+ */
 function VerificationWidget() {
   const [currentStep, setCurrentStep] = React.useState('phone');
   const [phoneNumber, setPhoneNumber] = React.useState('');
   const [verificationCode, setVerificationCode] = React.useState('');
 
-  // Which choice? 'yes', 'no', or '' if none selected
+  // Which side is selected? 'A', 'B', or '' if none
   const [selectedChoice, setSelectedChoice] = React.useState('');
-
-  // Hide results until a choice is selected
+  // If no choice is selected yet, we hide results. Once user picks, we show partial fill, etc.
   const [resultsRevealed, setResultsRevealed] = React.useState(false);
 
-  // Clicking the same choice again resets back to unselected
+  // Data from the server about this prop
+  const [propData, setPropData] = React.useState(null);
+  const [loading, setLoading] = React.useState(true);
+
+  // On mount, parse ?propID from the URL, fetch data
+  React.useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const propID = params.get('propID') || 'defaultProp';
+
+    fetch(`/api/prop?propID=${propID}`)
+      .then(res => res.json())
+      .then(data => {
+        setPropData(data);
+        setLoading(false);
+      })
+      .catch(err => {
+        console.error(err);
+        setLoading(false);
+      });
+  }, []);
+
   const handleSelectChoice = (choiceValue) => {
     if (choiceValue === selectedChoice) {
+      // Clicking the same choice again -> reset
       setSelectedChoice('');
       setResultsRevealed(false);
     } else {
+      // Otherwise select and reveal results
       setSelectedChoice(choiceValue);
       setResultsRevealed(true);
     }
@@ -191,38 +227,49 @@ function VerificationWidget() {
   const handleCodeSubmit = (code) => {
     setVerificationCode(code);
     console.log(`Verifying code "${code}" for phone "${phoneNumber}"`);
-    console.log(`User selected choice: "${selectedChoice}"`);
-    // Potentially show success or move to next step
+    console.log(`User selected side: "${selectedChoice}"`);
+    // Possibly show success or do something else
   };
 
   const handleResend = () => {
     console.log(`Resending code to "${phoneNumber}"`);
   };
 
-  // 
-  // NOTE the updated container style: maxWidth + margin: '0 auto'
-  //
+  // If still loading or we got an error
+  if (loading) {
+    return <div style={{ padding: '2rem' }}>Loading proposition...</div>;
+  }
+  if (!propData || propData.error) {
+    return (
+      <div style={{ padding: '2rem' }}>
+        {propData && propData.error ? propData.error : 'Error loading proposition'}
+      </div>
+    );
+  }
+
   return (
     <div
       style={{
         padding: '2rem',
-        maxWidth: '600px',       // limit overall width
-        margin: '0 auto',        // center horizontally if there's extra space
+        maxWidth: '600px',
+        margin: '0 auto', // center horizontally
       }}
     >
       <h2>Make The Take</h2>
-      <p>Do the Lakers win the 2020 Championship?</p>
+      <p>{propData.propShort}</p>
 
-      <PollChoices
+      <PropChoices
         selectedChoice={selectedChoice}
         resultsRevealed={resultsRevealed}
         onSelectChoice={handleSelectChoice}
+        propSideAPct={propData.propSideAPct}
+        propSideBPct={propData.propSideBPct}
       />
 
       {currentStep === 'phone' && (
-        <PhoneNumberForm 
-          phoneNumber={phoneNumber} 
-          onSubmit={handlePhoneSubmit} 
+        <PhoneNumberForm
+          phoneNumber={phoneNumber}
+          onSubmit={handlePhoneSubmit}
         />
       )}
 
@@ -238,6 +285,9 @@ function VerificationWidget() {
   );
 }
 
+/**
+ * Root App
+ */
 function App() {
   return (
     <div className="App">
