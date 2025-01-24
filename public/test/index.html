@@ -1,0 +1,41 @@
+<!-- public/test/index.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Widget Embed Test</title>
+  <!-- Tailwind CSS via CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 min-h-screen flex flex-col items-center justify-start p-6">
+  <!-- Container: now max-w-4xl instead of max-w-xl -->
+  <div class="max-w-4xl w-full bg-white rounded shadow p-6 mb-8">
+	<h1 class="text-2xl font-bold mb-4 text-center">
+	  Testing an Embedded Polling Widget
+	</h1>
+
+	<!-- Paragraph ABOVE the widget -->
+	<p class="mb-4 text-gray-700">
+	  Welcome to our demo article! Today we’re exploring how a polling widget can be
+	  embedded inside an editorial page. This example shows a simple React app served
+	  locally (or from production) and displayed in an iframe below. In a real-world 
+	  scenario, you’d simply paste a short snippet of HTML to embed the widget wherever you like.
+	</p>
+
+	<!-- The iframe referencing your React app -->
+	<iframe
+	  src="/"
+	  class="w-full h-[600px] border border-gray-300"
+	  frameborder="0"
+	  scrolling="auto"
+	></iframe>
+
+	<!-- Paragraph BELOW the widget -->
+	<p class="mt-4 text-gray-700">
+	  As you can see, the widget allows for user interaction (like selecting a poll choice 
+	  and verifying a phone number) without leaving the page. The entire flow is contained 
+	  within this framed section, ensuring a smooth reading and voting experience for users.
+	</p>
+  </div>
+</body>
+</html>
