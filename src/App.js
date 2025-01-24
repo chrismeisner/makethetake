@@ -1,14 +1,15 @@
 // src/App.js
 import React from 'react';
-import './App.css'; // Optional if you have external/global CSS
+import InputMask from 'react-input-mask';
+import './App.css'; // optional if you have global CSS
 
 /**
- * A single clickable "Side" (A/B) with a fill meter.
+ * Choice: a single side (A/B) with partial fill meter, hover effect
  */
 function Choice({ label, percentage, isSelected, showResults, onSelect }) {
   const [isHovered, setIsHovered] = React.useState(false);
 
-  // If results aren't revealed yet, fill is 0%. Otherwise, fill to `percentage`.
+  // If not revealed => 0%, else => `${percentage}%`
   const fillWidth = showResults ? `${percentage}%` : '0%';
 
   // Gray hover effect
@@ -17,15 +18,11 @@ function Choice({ label, percentage, isSelected, showResults, onSelect }) {
   const backgroundColor = isHovered ? hoverBackground : baseBackground;
 
   /**
-   * Fill opacity logic:
-   * - No results => fillOpacity = 0
-   * - Results + selected => 1.0
-   * - Results + not selected => 0.4
+   * fillOpacity = 0 if not revealed
+   * else => isSelected ? 1 : 0.4
    */
   const fillOpacity = showResults ? (isSelected ? 1 : 0.4) : 0;
-
-  // Convert #dbeafe (light blue) to RGBA w/ dynamic opacity
-  const fillColor = `rgba(219, 234, 254, ${fillOpacity})`;
+  const fillColor = `rgba(219, 234, 254, ${fillOpacity})`; // #dbeafe with variable opacity
 
   return (
     <div
@@ -45,7 +42,7 @@ function Choice({ label, percentage, isSelected, showResults, onSelect }) {
         textAlign: 'left',
       }}
     >
-      {/* Meter fill */}
+      {/* Fill bar behind the text */}
       <div
         style={{
           position: 'absolute',
@@ -58,11 +55,10 @@ function Choice({ label, percentage, isSelected, showResults, onSelect }) {
           transition: 'width 0.4s ease',
         }}
       />
-
-      {/* Label on top (split out so the label doesn't jump when percentages show) */}
+      {/* Label on top (split so it doesn't jump on reveal) */}
       <div style={{ position: 'relative', zIndex: 1 }}>
         <span>{label}</span>
-        <span 
+        <span
           style={{
             visibility: showResults ? 'visible' : 'hidden',
             marginLeft: '6px',
@@ -76,8 +72,7 @@ function Choice({ label, percentage, isSelected, showResults, onSelect }) {
 }
 
 /**
- * The container for "Side A" and "Side B."
- * We pass in "propSideAPct", "propSideBPct" from the parent.
+ * PropChoices: Two sides => A and B
  */
 function PropChoices({
   selectedChoice,
@@ -86,7 +81,6 @@ function PropChoices({
   propSideAPct,
   propSideBPct
 }) {
-  // We'll have 2 choices: "Side A" and "Side B"
   const choices = [
     { value: 'A', label: 'Side A', percentage: propSideAPct },
     { value: 'B', label: 'Side B', percentage: propSideBPct },
@@ -109,13 +103,20 @@ function PropChoices({
 }
 
 /**
- * Phone number form: side-by-side input & button
+ * PhoneNumberForm: 
+ *  - uses react-input-mask for (999) 999-9999
+ *  - does NOT log the take => only transitions to code step
  */
-function PhoneNumberForm({ phoneNumber, onSubmit }) {
+function PhoneNumberForm({ phoneNumber, onSubmit, selectedChoice }) {
   const [localPhone, setLocalPhone] = React.useState(phoneNumber);
 
+  // numericPhone => 10 digits
+  const numericPhone = localPhone.replace(/\D/g, '');
+  const isPhoneValid = numericPhone.length === 10;
+  const hasSide = selectedChoice !== '';
+  const isDisabled = !isPhoneValid || !hasSide;
+
   const handleSend = () => {
-    // In a real app, you'd call your server/Twilio here.
     onSubmit(localPhone);
   };
 
@@ -125,47 +126,107 @@ function PhoneNumberForm({ phoneNumber, onSubmit }) {
         Phone Number
       </label>
       <div style={{ display: 'flex', gap: '0.5rem' }}>
-        <input
-          type="tel"
+        <InputMask
+          mask="(999) 999-9999"
           value={localPhone}
           onChange={(e) => setLocalPhone(e.target.value)}
-          placeholder="(602) 380-2794"
-          style={{ flex: 1 }}
-        />
-        <button onClick={handleSend}>Send Verification Code</button>
+        >
+          {() => (
+            <input
+              type="tel"
+              placeholder="(602) 380-2794"
+              style={{ flex: 1 }}
+            />
+          )}
+        </InputMask>
+
+        <button onClick={handleSend} disabled={isDisabled}>
+          Send Verification Code
+        </button>
       </div>
+      {!hasSide && <div style={{ color: 'red' }}>Please select a side above.</div>}
+      {!isPhoneValid && <div style={{ color: 'red' }}>Enter a 10-digit phone number.</div>}
     </div>
   );
 }
 
 /**
- * Verification code form
+ * VerificationForm:
+ *  - uses react-input-mask for EXACT 6 digits
+ *  - on "Verify", logs the take => proceed to "complete"
  */
-function VerificationForm({ phoneNumber, verificationCode, onSubmit, onResend }) {
-  const [localCode, setLocalCode] = React.useState(verificationCode);
+function VerificationForm({
+  phoneNumber,
+  selectedChoice,
+  propID,
+  onComplete
+}) {
+  const [localCode, setLocalCode] = React.useState('');
 
-  const handleVerify = () => {
-    // In a real app, you'd verify with Twilio.
-    onSubmit(localCode);
+  const handleVerify = async () => {
+    const numeric = localCode.replace(/\D/g, '');
+    if (numeric.length !== 6) {
+      alert('Please enter a valid 6-digit code.');
+      return;
+    }
+
+    // Code "verified" => log the take
+    try {
+      const body = {
+        takeMobile: phoneNumber,
+        propID: propID,
+        propSide: selectedChoice,
+      };
+      console.log('[VerificationForm] Logging take:', body);
+
+      const resp = await fetch('/api/take', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!resp.ok) {
+        console.error('[VerificationForm] Logging take failed:', resp.status);
+        alert('Failed to log the take. Please try again.');
+        return;
+      }
+
+      // If success => move to "complete"
+      onComplete();
+    } catch (err) {
+      console.error('[VerificationForm] Error logging take:', err);
+      alert('Error logging take. Please try again.');
+    }
+  };
+
+  const handleResend = () => {
+    console.log(`Resending code to "${phoneNumber}" (in a real scenario => Twilio, etc.)`);
   };
 
   return (
     <div style={{ marginBottom: '1rem' }}>
-      <label>Your Verification Code</label>
-      <input
-        type="tel"
+      <label>Enter Your 6-Digit Verification Code</label>
+      <InputMask
+        mask="999999"        // exactly 6 digits
+        maskPlaceholder=""
         value={localCode}
         onChange={(e) => setLocalCode(e.target.value)}
-        placeholder="123-456"
-        style={{ display: 'block', margin: '0.5rem 0' }}
-      />
+      >
+        {() => (
+          <input
+            type="tel"
+            placeholder="123456"
+            style={{ display: 'block', margin: '0.5rem 0' }}
+          />
+        )}
+      </InputMask>
+
       <button onClick={handleVerify}>Verify</button>
 
       <p>
         Verification code sent to <strong>{phoneNumber}</strong>
       </p>
 
-      <button onClick={onResend} style={{ marginTop: '0.5rem' }}>
+      <button onClick={handleResend} style={{ marginTop: '0.5rem' }}>
         Resend it
       </button>
     </div>
@@ -173,24 +234,32 @@ function VerificationForm({ phoneNumber, verificationCode, onSubmit, onResend })
 }
 
 /**
- * Main widget that loads "Prop" data from /api/prop?propID=xxx
- * Toggling logic for Side A/B, plus phone verification steps
+ * Simple "complete" final step
+ */
+function CompleteStep() {
+  return (
+    <div style={{ marginTop: '1rem' }}>
+      <h3>Thanks!</h3>
+      <p>Your take was logged successfully.</p>
+    </div>
+  );
+}
+
+/**
+ * The main widget
+ *  - loads Prop from /api/prop
+ *  - toggles side A/B
+ *  - phone => code => logs take => complete
  */
 function VerificationWidget() {
   const [currentStep, setCurrentStep] = React.useState('phone');
   const [phoneNumber, setPhoneNumber] = React.useState('');
-  const [verificationCode, setVerificationCode] = React.useState('');
-
-  // Which side is selected? 'A', 'B', or '' if none
   const [selectedChoice, setSelectedChoice] = React.useState('');
-  // If no choice is selected yet, we hide results. Once user picks, we show partial fill, etc.
   const [resultsRevealed, setResultsRevealed] = React.useState(false);
 
-  // Data from the server about this prop
   const [propData, setPropData] = React.useState(null);
   const [loading, setLoading] = React.useState(true);
 
-  // On mount, parse ?propID from the URL, fetch data
   React.useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const propID = params.get('propID') || 'defaultProp';
@@ -202,18 +271,16 @@ function VerificationWidget() {
         setLoading(false);
       })
       .catch(err => {
-        console.error(err);
+        console.error('[VerificationWidget] Error fetching prop:', err);
         setLoading(false);
       });
   }, []);
 
   const handleSelectChoice = (choiceValue) => {
     if (choiceValue === selectedChoice) {
-      // Clicking the same choice again -> reset
       setSelectedChoice('');
       setResultsRevealed(false);
     } else {
-      // Otherwise select and reveal results
       setSelectedChoice(choiceValue);
       setResultsRevealed(true);
     }
@@ -224,18 +291,10 @@ function VerificationWidget() {
     setCurrentStep('code');
   };
 
-  const handleCodeSubmit = (code) => {
-    setVerificationCode(code);
-    console.log(`Verifying code "${code}" for phone "${phoneNumber}"`);
-    console.log(`User selected side: "${selectedChoice}"`);
-    // Possibly show success or do something else
+  const handleComplete = () => {
+    setCurrentStep('complete');
   };
 
-  const handleResend = () => {
-    console.log(`Resending code to "${phoneNumber}"`);
-  };
-
-  // If still loading or we got an error
   if (loading) {
     return <div style={{ padding: '2rem' }}>Loading proposition...</div>;
   }
@@ -248,13 +307,7 @@ function VerificationWidget() {
   }
 
   return (
-    <div
-      style={{
-        padding: '2rem',
-        maxWidth: '600px',
-        margin: '0 auto', // center horizontally
-      }}
-    >
+    <div style={{ padding: '2rem', maxWidth: '600px', margin: '0 auto' }}>
       <h2>Make The Take</h2>
       <p>{propData.propShort}</p>
 
@@ -270,24 +323,24 @@ function VerificationWidget() {
         <PhoneNumberForm
           phoneNumber={phoneNumber}
           onSubmit={handlePhoneSubmit}
+          selectedChoice={selectedChoice}
         />
       )}
 
       {currentStep === 'code' && (
         <VerificationForm
           phoneNumber={phoneNumber}
-          verificationCode={verificationCode}
-          onSubmit={handleCodeSubmit}
-          onResend={handleResend}
+          selectedChoice={selectedChoice}
+          propID={propData.propID}
+          onComplete={handleComplete}
         />
       )}
+
+      {currentStep === 'complete' && <CompleteStep />}
     </div>
   );
 }
 
-/**
- * Root App
- */
 function App() {
   return (
     <div className="App">
