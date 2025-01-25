@@ -1,25 +1,28 @@
-// File: src/TakePage.js
+// File: /Users/chrismeisner/Projects/make-the-take/src/TakePage.js
+
 import React from 'react';
 import { useParams } from 'react-router-dom';
 
 export default function TakePage() {
   const { takeID } = useParams();
+
   const [takeData, setTakeData] = React.useState(null);
   const [propData, setPropData] = React.useState(null);
+  const [contentItems, setContentItems] = React.useState([]); // new state for Content
   const [error, setError] = React.useState('');
 
   React.useEffect(() => {
-	// 1) Fetch from our new endpoint => /api/takes/xxx
+	// 1) Fetch from our endpoint => /api/takes/xxx
 	fetch(`/api/takes/${takeID}`)
 	  .then((res) => res.json())
 	  .then((json) => {
-		console.log('Response JSON from /api/takes:', json);
 		if (json.error) {
 		  setError(json.error);
 		} else {
 		  // We'll store the "take" and "prop" separately for clarity
 		  setTakeData(json.take);
-		  setPropData(json.prop); // might be null if no prop found
+		  setPropData(json.prop);
+		  setContentItems(json.content || []); // store the returned content array
 		}
 	  })
 	  .catch((err) => {
@@ -42,24 +45,22 @@ export default function TakePage() {
   }
 
   // We'll see if there's a propStatus to show
-  const statusMsg = propData?.propStatus
-	? `Prop status: ${propData.propStatus}`
-	: '(No status field)';
+  const propStatus = propData?.propStatus;
+  const userSide = takeData.propSide;
 
   // If it's graded, let's see if the user was correct or not
   let wasUserCorrect = null;
-  const userSide = takeData.propSide; // 'A' or 'B'
-  const propStatus = propData?.propStatus;
   if (propStatus === 'gradedA') {
-	wasUserCorrect = userSide === 'A';
+	wasUserCorrect = (userSide === 'A');
   } else if (propStatus === 'gradedB') {
-	wasUserCorrect = userSide === 'B';
+	wasUserCorrect = (userSide === 'B');
   }
   // wasUserCorrect could be true, false, or null
 
   return (
 	<div style={{ padding: '2rem' }}>
 	  <h2>Take Details (TakeID: {takeID})</h2>
+
 	  <p>
 		<strong>Airtable Record ID (Take):</strong> {takeData.airtableRecordId}
 	  </p>
@@ -104,10 +105,11 @@ export default function TakePage() {
 		  {/* Additional message if graded */}
 		  {(propStatus === 'gradedA' || propStatus === 'gradedB') && (
 			<div style={{ marginTop: '1rem' }}>
-			  {wasUserCorrect
-				? <p style={{ color: 'green' }}>✅ You chose the correct side!</p>
-				: <p style={{ color: 'red' }}>❌ You chose the incorrect side.</p>
-			  }
+			  {wasUserCorrect ? (
+				<p style={{ color: 'green' }}>✅ You chose the correct side!</p>
+			  ) : (
+				<p style={{ color: 'red' }}>❌ You chose the incorrect side.</p>
+			  )}
 			</div>
 		  )}
 		</div>
@@ -116,6 +118,34 @@ export default function TakePage() {
 		  <em>No related Prop found for this Take</em>
 		</div>
 	  )}
+
+	  {/* Display Content items if any */}
+	  <div style={{ marginTop: '2rem' }}>
+		<h3>Related Content</h3>
+		{contentItems.length === 0 ? (
+		  <p style={{ color: '#666' }}>No related content found for this prop.</p>
+		) : (
+		  contentItems.map((content) => (
+			<div
+			  key={content.airtableRecordId}
+			  style={{ 
+				border: '1px solid #ccc',
+				padding: '1rem',
+				marginBottom: '1rem'
+			  }}
+			>
+			  <h4 style={{ margin: 0 }}>{content.contentTitle}</h4>
+			  <p style={{ margin: '0.25rem 0' }}>
+				<strong>Source:</strong> {content.contentSource} <br />
+				<strong>Created:</strong> {content.created}
+			  </p>
+			  <a href={content.contentURL} target="_blank" rel="noopener noreferrer">
+				{content.contentURL}
+			  </a>
+			</div>
+		  ))
+		)}
+	  </div>
 	</div>
   );
 }

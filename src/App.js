@@ -1,13 +1,15 @@
-// File: src/App.js
+// File: /Users/chrismeisner/Projects/make-the-take/src/App.js
+
 import React from 'react';
 import InputMask from 'react-input-mask';
 import './App.css'; // optional if you have global CSS
 
-// 1) React Router imports
+// React Router imports
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 
-// We'll import TakePage from a separate file
+// We'll import these components:
 import TakePage from './TakePage';
+import LeaderboardPage from './LeaderboardPage';  // <-- NEW import for the leaderboard
 
 // ----------------------
 // Choice Component
@@ -105,7 +107,6 @@ function PropChoices({
   sideBLabel,
   propStatus
 }) {
-  // We create the array of choices:
   const choices = [
     { value: 'A', label: sideALabel, percentage: propSideAPct },
     { value: 'B', label: sideBLabel, percentage: propSideBPct }
@@ -305,7 +306,6 @@ function CompleteStep({ takeID }) {
 
       {takeID && (
         <p>
-          {/* Link to the newly created takeID */}
           <a href={`/takes/${takeID}`} target="_blank" rel="noreferrer">
             View your new take here
           </a>
@@ -384,7 +384,6 @@ function VerificationWidget() {
 
   // Called when user has fully completed verification + creation
   function handleComplete(newTakeID) {
-    // Store the newly created takeID, so we can display a link in the final step
     setTakeID(newTakeID);
     setCurrentStep('complete');
   }
@@ -401,10 +400,8 @@ function VerificationWidget() {
       )}
       {(propStatus === 'gradedA' || propStatus === 'gradedB') && (
         <p style={{ color: 'green', fontWeight: 'bold' }}>
-          This prop has been graded. 
-          {propStatus === 'gradedA'
-            ? 'Side A is correct.'
-            : 'Side B is correct.'}
+          This prop has been graded.&nbsp;
+          {propStatus === 'gradedA' ? 'Side A is correct.' : 'Side B is correct.'}
         </p>
       )}
 
@@ -452,8 +449,11 @@ function App() {
         {/* Root path => Show the VerificationWidget */}
         <Route path="/" element={<VerificationWidget />} />
 
-        {/* New route => "/takes/:takeID" => Show the TakePage */}
+        {/* Takes details route => "/takes/:takeID" */}
         <Route path="/takes/:takeID" element={<TakePage />} />
+
+        {/* NEW route => "/leaderboard" => Show the LeaderboardPage */}
+        <Route path="/leaderboard" element={<LeaderboardPage />} />
       </Routes>
     </Router>
   );
