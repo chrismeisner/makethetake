@@ -1,4 +1,4 @@
-// server.js
+// File: server.js
 const path = require('path');
 const express = require('express');
 const fetch = require('node-fetch'); // node-fetch@2 for CommonJS
@@ -194,9 +194,10 @@ app.get('/api/prop', async (req, res) => {
  * POST /api/take
  * 1) Fetch existing "Takes" for this propID
  * 2) Count sideA / sideB
- * 3) Increment whichever side the user picked
- * 4) Apply +1 offset => store new popularity in "takePopularity"
- * 5) Create record in "Takes"
+ * 3) Compute "pre-take" popularity for the user's side
+ * 4) Create record in "Takes"
+ * 5) Return newTakeID in JSON response
+ * 6) Send user an SMS link to their brand-new take
  */
 app.post('/api/take', async (req, res) => {
   const { takeMobile, propID, propSide } = req.body;
@@ -227,7 +228,7 @@ app.post('/api/take', async (req, res) => {
 	const takesData = await takesRes.json();
 	console.log(`[api/take] Found ${takesData.records?.length || 0} existing takes for propID=${propID}`);
 
-	// 2) Count sideA / sideB
+	// 2) Count sideA / sideB among existing takes
 	let sideACount = 0;
 	let sideBCount = 0;
 	for (let rec of (takesData.records || [])) {
@@ -237,29 +238,25 @@ app.post('/api/take', async (req, res) => {
 	}
 	console.log(`[api/take] Current counts => A=${sideACount}, B=${sideBCount}`);
 
-	// 3) Simulate adding this new take => compute popularity
-	if (propSide === 'A') {
-	  sideACount++;
-	} else {
-	  sideBCount++;
-	}
-
-	// Then apply +1 offset for the snapshot popularity
+	// 3) Compute the "pre-take" popularity using +1 offset
+	//    (no increment for the new user yet)
 	const sideAwithOffset = sideACount + 1;
 	const sideBwithOffset = sideBCount + 1;
 	const total = sideAwithOffset + sideBwithOffset;
 
-	let takePopularity = 0;
+	let sideAPct = 0;
+	let sideBPct = 0;
 	if (total > 0) {
-	  if (propSide === 'A') {
-		takePopularity = Math.round((sideAwithOffset / total) * 100);
-	  } else {
-		takePopularity = Math.round((sideBwithOffset / total) * 100);
-	  }
+	  sideAPct = Math.round((sideAwithOffset / total) * 100);
+	  sideBPct = Math.round((sideBwithOffset / total) * 100);
 	}
-	console.log(`[api/take] After increment + offset => A=${sideAwithOffset}, B=${sideBwithOffset}, newTakePopularity=${takePopularity}%`);
 
-	// 4) Create the new record in "Takes" table
+	// Store whichever side's pct the user chose
+	const takePopularity = (propSide === 'A') ? sideAPct : sideBPct;
+	console.log(`[api/take] PRE-take popularity => A=${sideAPct}%, B=${sideBPct}%. 
+				 User chose "${propSide}", so storing ${takePopularity}%`);
+
+	// 4) Create the new record in "Takes" table with that pre-take popularity
 	const createUrl = `https://api.airtable.com/v0/${baseID}/${tableName}`;
 	console.log(`📡 [api/take] Creating record in "${tableName}" via: ${createUrl}`);
 
@@ -277,6 +274,8 @@ app.post('/api/take', async (req, res) => {
 			  propID,
 			  propSide,
 			  takePopularity
+			  // If you have a formula or other method to generate "TakeID" in Airtable,
+			  // ensure it’s part of your fields or automatically generated in the table
 			}
 		  }
 		]
@@ -291,8 +290,38 @@ app.post('/api/take', async (req, res) => {
 	const data = await airtableRes.json();
 	console.log('🎉 [api/take] Created record in Airtable:', JSON.stringify(data, null, 2));
 
-	// Return success
-	res.json({ success: true, created: data.records[0] });
+	// Grab the newly created record and determine the newTakeID
+	const newlyCreatedRecord = data.records[0];
+	const newTakeID = newlyCreatedRecord.fields.TakeID || newlyCreatedRecord.id;
+
+	// 5) Return newTakeID along with success
+	//    so the client can show a link to /takes/:newTakeID
+	// ------------------------------------------------------------------------------
+	// NOTE: This is the new line that includes newTakeID in the server response.
+	// ------------------------------------------------------------------------------
+	res.json({
+	  success: true,
+	  created: data.records[0],
+	  newTakeID
+	});
+
+	// 6) Send user an SMS link to their new take (optional but recommended)
+	const numericOnly = takeMobile.replace(/\D/g, '');
+	const e164Phone = '+1' + numericOnly;
+
+	try {
+	  console.log(`📲 [api/take] Sending SMS link to ${e164Phone} ...`);
+	  await twilioClient.messages.create({
+		to: e164Phone,
+		from: process.env.TWILIO_FROM_NUMBER, // e.g. "+16025551234"
+		body: `Thanks for your take!\n\nView it here:\nhttps://YOUR-HOSTED-URL/takes/${newTakeID}`
+	  });
+	  console.log(`✅ [api/take] SMS link successfully sent to ${e164Phone}`);
+	} catch (smsError) {
+	  console.error('❌ [api/take] Error sending SMS link:', smsError);
+	  // Decide if you want to fail the entire request or just log it.
+	}
+
   } catch (err) {
 	console.error('💥 [api/take] Error creating record:', err);
 	res.status(500).json({ error: 'Server error creating take' });
@@ -336,13 +365,13 @@ app.get('/api/takes/:takeID', async (req, res) => {
 
 	// Extract the fields we care about
 	const takeFields = takeRecord.fields;
-	const propID = takeFields.propID; // We'll use this to fetch from Props
+	const relatedPropID = takeFields.propID; // We'll use this to fetch from Props
 
 	// 2) Fetch the related "Prop" from the "Props" table by propID
 	let propData = null;
-	if (propID) {
-	  const propsUrl = `https://api.airtable.com/v0/${baseID}/Props?filterByFormula={propID}='${propID}'`;
-	  console.log(`🔎 [GET /api/takes/${takeID}] Looking up Props by propID="${propID}"`);
+	if (relatedPropID) {
+	  const propsUrl = `https://api.airtable.com/v0/${baseID}/Props?filterByFormula={propID}='${relatedPropID}'`;
+	  console.log(`🔎 [GET /api/takes/${takeID}] Looking up Props by propID="${relatedPropID}"`);
 
 	  const propsResp = await fetch(propsUrl, {
 		headers: { Authorization: `Bearer ${apiKey}` },
@@ -369,7 +398,7 @@ app.get('/api/takes/:takeID', async (req, res) => {
 		  // Add any additional Prop fields you want
 		};
 	  } else {
-		console.log(`😕 [GET /api/takes/${takeID}] No Props record found for propID="${propID}"`);
+		console.log(`😕 [GET /api/takes/${takeID}] No Props record found for propID="${relatedPropID}"`);
 	  }
 	}
 

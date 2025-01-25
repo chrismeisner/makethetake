@@ -78,8 +78,6 @@ function PropChoices({
   onSelectChoice,
   propSideAPct,
   propSideBPct,
-
-  // new props from server
   sideALabel,
   sideBLabel
 }) {
@@ -213,8 +211,17 @@ function VerificationForm({
         return;
       }
 
-      // 3) done
-      onComplete();
+      const takeData = await takeResp.json();
+      if (!takeData.success) {
+        alert('Failed to create the take');
+        return;
+      }
+
+      // Grab the newTakeID from the server response
+      const { newTakeID } = takeData;
+
+      // 3) done => notify the parent of newTakeID
+      onComplete(newTakeID);
     } catch (err) {
       console.error('[VerificationForm] Error verifying code:', err);
       alert('Error verifying code. Please try again.');
@@ -260,11 +267,20 @@ function VerificationForm({
 // ----------------------
 // CompleteStep Component
 // ----------------------
-function CompleteStep() {
+function CompleteStep({ takeID }) {
   return (
     <div style={{ marginTop: '1rem' }}>
       <h3>Thanks!</h3>
       <p>Your take was logged successfully.</p>
+
+      {takeID && (
+        <p>
+          {/* Link to the newly created takeID */}
+          <a href={`/takes/${takeID}`} target="_blank" rel="noreferrer">
+            View your new take here
+          </a>
+        </p>
+      )}
     </div>
   );
 }
@@ -280,6 +296,9 @@ function VerificationWidget() {
 
   const [propData, setPropData] = React.useState(null);
   const [loading, setLoading] = React.useState(true);
+
+  // We'll store the newly created takeID (once the take is saved)
+  const [takeID, setTakeID] = React.useState(null);
 
   React.useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -312,7 +331,10 @@ function VerificationWidget() {
     setCurrentStep('code');
   }
 
-  function handleComplete() {
+  // Called when user has fully completed verification + creation
+  function handleComplete(newTakeID) {
+    // Store the newly created takeID, so we can display a link in the final step
+    setTakeID(newTakeID);
     setCurrentStep('complete');
   }
 
@@ -338,7 +360,6 @@ function VerificationWidget() {
         onSelectChoice={handleSelectChoice}
         propSideAPct={propData.propSideAPct}
         propSideBPct={propData.propSideBPct}
-        // new labels from server
         sideALabel={propData.PropSideAShort}
         sideBLabel={propData.PropSideBShort}
       />
@@ -360,7 +381,7 @@ function VerificationWidget() {
         />
       )}
 
-      {currentStep === 'complete' && <CompleteStep />}
+      {currentStep === 'complete' && <CompleteStep takeID={takeID} />}
     </div>
   );
 }
