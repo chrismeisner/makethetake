@@ -314,7 +314,7 @@ app.post('/api/take', async (req, res) => {
 	  await twilioClient.messages.create({
 		to: e164Phone,
 		from: process.env.TWILIO_FROM_NUMBER, // e.g. "+16025551234"
-		body: `Thanks for your take!\n\nView it here:\nhttps://YOUR-HOSTED-URL/takes/${newTakeID}`
+		body: `Thanks for your take!\n\nView it here:\nhttps://make-the-take-app-db5f17d09089.herokuapp.com/takes/${newTakeID}`
 	  });
 	  console.log(`✅ [api/take] SMS link successfully sent to ${e164Phone}`);
 	} catch (smsError) {
