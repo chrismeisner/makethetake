@@ -9,7 +9,7 @@ import './App.css'; // optional if you have global CSS
 function Choice({ label, percentage, isSelected, showResults, onSelect }) {
   const [isHovered, setIsHovered] = React.useState(false);
 
-  // If not revealed => 0%, else => `${percentage}%`
+  // If results not revealed => 0%, else => `${percentage}%`.
   const fillWidth = showResults ? `${percentage}%` : '0%';
 
   // Gray hover effect
@@ -18,7 +18,7 @@ function Choice({ label, percentage, isSelected, showResults, onSelect }) {
   const backgroundColor = isHovered ? hoverBackground : baseBackground;
 
   /**
-   * fillOpacity = 0 if not revealed
+   * fillOpacity = 0 if results not revealed
    * else => isSelected ? 1 : 0.4
    */
   const fillOpacity = showResults ? (isSelected ? 1 : 0.4) : 0;
@@ -104,22 +104,39 @@ function PropChoices({
 }
 
 /**
- * PhoneNumberForm: 
+ * PhoneNumberForm:
  *  - uses react-input-mask for (999) 999-9999
- *  - does NOT log the take => only transitions to code step
+ *  - calls /api/sendCode with that phone
+ *  - if success => onSubmit(localPhone) to move to code step
  */
 function PhoneNumberForm({ phoneNumber, onSubmit, selectedChoice }) {
   const [localPhone, setLocalPhone] = React.useState(phoneNumber);
 
-  // numericPhone => 10 digits
+  // We check if user typed 10 digits + selected side => enable button
   const numericPhone = localPhone.replace(/\D/g, '');
   const isPhoneValid = numericPhone.length === 10;
   const hasSide = selectedChoice !== '';
   const isDisabled = !isPhoneValid || !hasSide;
 
-  const handleSend = () => {
-    onSubmit(localPhone);
-  };
+  async function handleSend() {
+    try {
+      // 1) Call /api/sendCode with { phone: localPhone }
+      const resp = await fetch('/api/sendCode', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone: localPhone })
+      });
+      if (!resp.ok) {
+        alert('Failed to send verification code');
+        return;
+      }
+      // 2) If success => go to code step
+      onSubmit(localPhone);
+    } catch (err) {
+      console.error('[PhoneNumberForm] Error sending code:', err);
+      alert('Error sending code. Please try again.');
+    }
+  }
 
   return (
     <div style={{ marginBottom: '1rem' }}>
@@ -145,8 +162,12 @@ function PhoneNumberForm({ phoneNumber, onSubmit, selectedChoice }) {
           Send Verification Code
         </button>
       </div>
-      {!hasSide && <div style={{ color: 'red' }}>Please select a side above.</div>}
-      {!isPhoneValid && <div style={{ color: 'red' }}>Enter a 10-digit phone number.</div>}
+      {!hasSide && (
+        <div style={{ color: 'red' }}>Please select a side above.</div>
+      )}
+      {!isPhoneValid && (
+        <div style={{ color: 'red' }}>Enter a 10-digit phone number.</div>
+      )}
     </div>
   );
 }
@@ -154,7 +175,8 @@ function PhoneNumberForm({ phoneNumber, onSubmit, selectedChoice }) {
 /**
  * VerificationForm:
  *  - uses react-input-mask for EXACT 6 digits
- *  - on "Verify", logs the take => proceed to "complete"
+ *  - first calls /api/verifyCode => if success => call /api/take
+ *  - then proceed to "complete"
  */
 function VerificationForm({
   phoneNumber,
@@ -164,50 +186,61 @@ function VerificationForm({
 }) {
   const [localCode, setLocalCode] = React.useState('');
 
-  const handleVerify = async () => {
+  async function handleVerify() {
     const numeric = localCode.replace(/\D/g, '');
     if (numeric.length !== 6) {
       alert('Please enter a valid 6-digit code.');
       return;
     }
 
-    // Code "verified" => log the take
     try {
-      const body = {
-        takeMobile: phoneNumber,
-        propID: propID,
-        propSide: selectedChoice,
-      };
-      console.log('[VerificationForm] Logging take:', body);
-
-      const resp = await fetch('/api/take', {
+      // 1) Verify code with Twilio
+      const verifyResp = await fetch('/api/verifyCode', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ phone: phoneNumber, code: numeric })
       });
-      if (!resp.ok) {
-        console.error('[VerificationForm] Logging take failed:', resp.status);
-        alert('Failed to log the take. Please try again.');
+      const verifyData = await verifyResp.json();
+      if (!verifyData.success) {
+        alert(verifyData.error || 'Invalid code');
         return;
       }
 
-      // If success => move to "complete"
+      // 2) If code is valid => create the "take"
+      const takeBody = {
+        takeMobile: phoneNumber,
+        propID,
+        propSide: selectedChoice
+      };
+      const takeResp = await fetch('/api/take', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(takeBody)
+      });
+      if (!takeResp.ok) {
+        alert('Failed to log the take');
+        return;
+      }
+
+      // 3) Move to "complete" step
       onComplete();
     } catch (err) {
-      console.error('[VerificationForm] Error logging take:', err);
-      alert('Error logging take. Please try again.');
+      console.error('[VerificationForm] Error verifying code:', err);
+      alert('Error verifying code. Please try again.');
     }
-  };
+  }
 
-  const handleResend = () => {
-    console.log(`Resending code to "${phoneNumber}" (in a real scenario => Twilio, etc.)`);
-  };
+  function handleResend() {
+    // If you want a "resend code" option, call /api/sendCode again
+    console.log(`Resending code to "${phoneNumber}"...`);
+    // Possibly do the same logic as handleSend in PhoneNumberForm
+  }
 
   return (
     <div style={{ marginBottom: '1rem' }}>
       <label>Enter Your 6-Digit Verification Code</label>
       <InputMask
-        mask="999999"        // exactly 6 digits
+        mask="999999"
         maskPlaceholder=""
         value={localCode}
         onChange={(e) => setLocalCode(e.target.value)}
@@ -248,12 +281,9 @@ function CompleteStep() {
 
 /**
  * The main widget
- *  - loads Prop from /api/prop dynamically
+ *  - loads Prop from /api/prop
  *  - toggles side A/B
- *  - phone => code => logs take => complete
- *
- * The server now calculates side A/B percentages by counting
- * all "Takes" with the matching propID.
+ *  - phone => code => Twilio verify => if success => log take => complete
  */
 function VerificationWidget() {
   const [currentStep, setCurrentStep] = React.useState('phone');
@@ -264,6 +294,7 @@ function VerificationWidget() {
   const [propData, setPropData] = React.useState(null);
   const [loading, setLoading] = React.useState(true);
 
+  // Load the prop from /api/prop
   React.useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const propID = params.get('propID') || 'defaultProp';
@@ -280,7 +311,8 @@ function VerificationWidget() {
       });
   }, []);
 
-  const handleSelectChoice = (choiceValue) => {
+  // user picks side
+  function handleSelectChoice(choiceValue) {
     if (choiceValue === selectedChoice) {
       setSelectedChoice('');
       setResultsRevealed(false);
@@ -288,16 +320,18 @@ function VerificationWidget() {
       setSelectedChoice(choiceValue);
       setResultsRevealed(true);
     }
-  };
+  }
 
-  const handlePhoneSubmit = (phone) => {
+  // Once phone is submitted (after we send code => success), go to code step
+  function handlePhoneSubmit(phone) {
     setPhoneNumber(phone);
     setCurrentStep('code');
-  };
+  }
 
-  const handleComplete = () => {
+  // Once everything is done, show the "complete" step
+  function handleComplete() {
     setCurrentStep('complete');
-  };
+  }
 
   if (loading) {
     return <div style={{ padding: '2rem' }}>Loading proposition...</div>;
@@ -305,7 +339,7 @@ function VerificationWidget() {
   if (!propData || propData.error) {
     return (
       <div style={{ padding: '2rem' }}>
-        {propData && propData.error ? propData.error : 'Error loading proposition'}
+        {propData?.error || 'Error loading proposition'}
       </div>
     );
   }
@@ -315,10 +349,7 @@ function VerificationWidget() {
       <h2>Make The Take</h2>
       <p>{propData.propShort}</p>
 
-      {/* 
-        Now these percentages are dynamically computed by the server 
-        from the "Takes" table for propID = propData.propID
-      */}
+      {/* Display the dynamic side A/B with partial fill bars */}
       <PropChoices
         selectedChoice={selectedChoice}
         resultsRevealed={resultsRevealed}

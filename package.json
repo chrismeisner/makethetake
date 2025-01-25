@@ -17,6 +17,7 @@
     "react-dom": "^18.2.0",
     "react-input-mask": "^2.0.4",
     "react-scripts": "5.0.1",
+    "twilio": "^5.4.2",
     "web-vitals": "^4.2.4"
   },
   "engines": {

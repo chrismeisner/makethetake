@@ -3,33 +3,107 @@ const path = require('path');
 const express = require('express');
 const fetch = require('node-fetch'); // node-fetch@2 for CommonJS
 require('dotenv').config();         // loads .env variables
+const twilio = require('twilio');
+
+// Twilio setup
+const twilioClient = twilio(
+  process.env.TWILIO_ACCOUNT_SID,
+  process.env.TWILIO_AUTH_TOKEN
+);
 
 const app = express();
 
 // Serve React's production build
 app.use(express.static(path.join(__dirname, 'build')));
 
-// Parse JSON in request bodies (needed for POST /api/take)
+// Parse JSON in request bodies (needed for POST /api/take, /api/sendCode, etc.)
 app.use(express.json());
+
+/**
+ * POST /api/sendCode
+ *  - Receives phone (e.g., "(602) 380-2794" or "+16023802794")
+ *  - Converts to E.164 (if needed)
+ *  - Calls Twilio Verify to send an SMS code
+ */
+app.post('/api/sendCode', async (req, res) => {
+  const { phone } = req.body;
+  if (!phone) {
+	console.log('❗ [api/sendCode] Missing phone');
+	return res.status(400).json({ error: 'Missing phone' });
+  }
+
+  try {
+	// Convert phone to E.164 if you're in the US, for example:
+	const numericOnly = phone.replace(/\D/g, ''); // e.g., "6023802794"
+	const e164Phone = '+1' + numericOnly;         // e.g., "+16023802794"
+	console.log(`[api/sendCode] Sending code to ${e164Phone}`);
+
+	const verification = await twilioClient.verify
+	  .services(process.env.TWILIO_VERIFY_SERVICE_SID)
+	  .verifications.create({ to: e164Phone, channel: 'sms' });
+
+	console.log('[api/sendCode] Twilio Verify sid:', verification.sid);
+	return res.json({ success: true });
+  } catch (err) {
+	console.error('[api/sendCode] Error:', err);
+	return res.status(500).json({ error: 'Failed to send verification code' });
+  }
+});
+
+/**
+ * POST /api/verifyCode
+ *  - Receives phone and code
+ *  - Checks code via Twilio Verify
+ *  - If valid => success: true
+ *  - If invalid => success: false
+ */
+app.post('/api/verifyCode', async (req, res) => {
+  const { phone, code } = req.body;
+  if (!phone || !code) {
+	console.log('❗ [api/verifyCode] Missing phone or code');
+	return res.status(400).json({ error: 'Missing phone or code' });
+  }
+
+  try {
+	// Convert phone to E.164 again if needed
+	const numericOnly = phone.replace(/\D/g, '');
+	const e164Phone = '+1' + numericOnly;
+
+	console.log(`[api/verifyCode] Checking code ${code} for ${e164Phone}`);
+	const check = await twilioClient.verify
+	  .services(process.env.TWILIO_VERIFY_SERVICE_SID)
+	  .verificationChecks.create({ to: e164Phone, code });
+
+	console.log('[api/verifyCode] Twilio status:', check.status);
+
+	if (check.status === 'approved') {
+	  // Code is correct
+	  return res.json({ success: true });
+	} else {
+	  // Invalid code
+	  return res.json({ success: false, error: 'Invalid code' });
+	}
+  } catch (err) {
+	console.error('[api/verifyCode] Error:', err);
+	return res.status(500).json({ error: 'Failed to verify code' });
+  }
+});
 
 /**
  * GET /api/prop?propID=xyz
  * 1) Fetch "Props" record for the question text, etc.
  * 2) Fetch all "Takes" where {propID}='xyz'
  * 3) Count how many sideA vs sideB
- * 4) Apply +1 offset to each side => compute integer percentages
- *    (this ensures 0 real takes => (1 vs 1) => 50/50, etc.)
+ * 4) Apply +1 offset => compute integer percentages
  */
 app.get('/api/prop', async (req, res) => {
   const propID = req.query.propID;
-
   if (!propID) {
 	console.log('❗️ [api/prop] No propID provided 🤷‍♂️');
 	return res.status(400).json({ error: 'Missing propID' });
   }
 
   console.log(`🔎 [api/prop] Received propID: ${propID}`);
-
   try {
 	const apiKey   = process.env.AIRTABLE_API_KEY;
 	const baseID   = process.env.AIRTABLE_BASE_ID;
@@ -77,28 +151,18 @@ app.get('/api/prop', async (req, res) => {
 	// --- 3) Count how many side A vs side B
 	let sideACount = 0;
 	let sideBCount = 0;
-
 	for (let rec of (takesData.records || [])) {
 	  const side = rec.fields.propSide;
-	  console.log(`[api/prop] Checking record ${rec.id}, propSide=${side}`);
-
-	  if (side === 'A') {
-		sideACount++;
-	  } else if (side === 'B') {
-		sideBCount++;
-	  } else {
-		console.log(`[api/prop] Unknown side "${side}" found, ignoring`);
-	  }
+	  if (side === 'A') sideACount++;
+	  if (side === 'B') sideBCount++;
 	}
-
 	console.log(`[api/prop] Real counts => sideA=${sideACount}, sideB=${sideBCount}`);
 
-	// --- 4) Add +1 offset to each side for the calculation
+	// --- 4) Add +1 offset => compute integer percentages
 	const sideAwithOffset = sideACount + 1;
 	const sideBwithOffset = sideBCount + 1;
 	const total = sideAwithOffset + sideBwithOffset;
 
-	// integer percentages
 	const sideAPct = Math.round((sideAwithOffset / total) * 100);
 	const sideBPct = Math.round((sideBwithOffset / total) * 100);
 
@@ -109,8 +173,8 @@ app.get('/api/prop', async (req, res) => {
 	res.json({
 	  propID,
 	  propShort,
-	  sideACount,      // real count if you want to show it
-	  sideBCount,      // real count
+	  sideACount,
+	  sideBCount,
 	  propSideAPct: sideAPct,
 	  propSideBPct: sideBPct,
 	});
@@ -126,8 +190,8 @@ app.get('/api/prop', async (req, res) => {
  * 1) Fetch existing "Takes" for this propID
  * 2) Count sideA / sideB
  * 3) Increment whichever side the user picked
- * 4) Apply +1 offset for the new popularity snapshot => store in "takePopularity"
- * 5) Create record in "Takes" table
+ * 4) Apply +1 offset => store new popularity in "takePopularity"
+ * 5) Create record in "Takes"
  */
 app.post('/api/take', async (req, res) => {
   const { takeMobile, propID, propSide } = req.body;
@@ -141,9 +205,9 @@ app.post('/api/take', async (req, res) => {
   try {
 	const apiKey   = process.env.AIRTABLE_API_KEY;
 	const baseID   = process.env.AIRTABLE_BASE_ID;
-	const tableName = 'Takes'; // your Airtable "Takes" table
+	const tableName = 'Takes';
 
-	// 1) Fetch existing "Takes" for propID
+	// 1) Fetch existing Takes
 	const takesUrl = `https://api.airtable.com/v0/${baseID}/Takes?filterByFormula={propID}='${propID}'`;
 	console.log(`🔎 [api/take] Fetching existing takes from:\n   ${takesUrl}`);
 
@@ -190,7 +254,7 @@ app.post('/api/take', async (req, res) => {
 	}
 	console.log(`[api/take] After increment + offset => A=${sideAwithOffset}, B=${sideBwithOffset}, newTakePopularity=${takePopularity}%`);
 
-	// 4) Create the new record in "Takes" table, including "takePopularity"
+	// 4) Create the new record in "Takes" table
 	const createUrl = `https://api.airtable.com/v0/${baseID}/${tableName}`;
 	console.log(`📡 [api/take] Creating record in "${tableName}" via: ${createUrl}`);
 
@@ -204,9 +268,9 @@ app.post('/api/take', async (req, res) => {
 		records: [
 		  {
 			fields: {
-			  takeMobile: takeMobile,
-			  propID: propID,
-			  propSide: propSide,
+			  takeMobile,
+			  propID,
+			  propSide,
 			  takePopularity
 			}
 		  }
