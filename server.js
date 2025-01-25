@@ -95,7 +95,7 @@ app.post('/api/verifyCode', async (req, res) => {
  * 2) Fetch all "Takes" where {propID}='xyz'
  * 3) Count how many sideA vs sideB
  * 4) Apply +1 offset => compute integer percentages
- * 5) Return fields including 'PropSideAMedium' and 'PropSideBMedium'
+ * 5) Return fields including 'PropSideAShort' and 'PropSideBShort'
  */
 app.get('/api/prop', async (req, res) => {
   const propID = req.query.propID;
@@ -133,9 +133,8 @@ app.get('/api/prop', async (req, res) => {
 
 	// We'll display these in the client
 	const propShort = propsFields.propShort || '';
-	// Replace "Side A"/"Side B" with these new fields
-	const propSideAMedium = propsFields.PropSideAMedium || 'PropSideAMedium';
-	const propSideBMedium = propsFields.PropSideBMedium || 'PropSideBMedium';
+	const PropSideAShort = propsFields.PropSideAShort || 'PropSideAShort';
+	const PropSideBShort = propsFields.PropSideBShort || 'PropSideBShort';
 
 	// --- 2) Fetch all "Takes" for this propID
 	const takesUrl = `https://api.airtable.com/v0/${baseID}/Takes?filterByFormula={propID}='${propID}'`;
@@ -177,10 +176,8 @@ app.get('/api/prop', async (req, res) => {
 	res.json({
 	  propID,
 	  propShort,
-	  // Replacing "Side A"/"Side B" with fields from Airtable
-	  propSideAMedium,
-	  propSideBMedium,
-
+	  PropSideAShort,
+	  PropSideBShort,
 	  sideACount,
 	  sideBCount,
 	  propSideAPct: sideAPct,
@@ -299,6 +296,104 @@ app.post('/api/take', async (req, res) => {
   } catch (err) {
 	console.error('💥 [api/take] Error creating record:', err);
 	res.status(500).json({ error: 'Server error creating take' });
+  }
+});
+
+/**
+ * GET /api/takes/:takeID
+ *  - Finds a record in the "Takes" table where {TakeID} = :takeID
+ *  - Returns that Take record's fields
+ *  - Also uses propID to lookup the "Props" table, returning additional details
+ */
+app.get('/api/takes/:takeID', async (req, res) => {
+  const { takeID } = req.params;
+  console.log(`🔎 [GET /api/takes/${takeID}] Looking up Take record by "TakeID" field...`);
+
+  const apiKey = process.env.AIRTABLE_API_KEY;
+  const baseID = process.env.AIRTABLE_BASE_ID;
+
+  try {
+	// 1) Fetch the "Take" record from the "Takes" table by TakeID
+	const takesUrl = `https://api.airtable.com/v0/${baseID}/Takes?filterByFormula={TakeID}='${takeID}'`;
+	const takesResp = await fetch(takesUrl, {
+	  headers: { Authorization: `Bearer ${apiKey}` },
+	});
+
+	if (!takesResp.ok) {
+	  console.error(`❌ [GET /api/takes/${takeID}] Airtable error: ${takesResp.status} ${takesResp.statusText}`);
+	  return res.status(500).json({ error: 'Airtable fetch error (Takes)' });
+	}
+
+	const takesData = await takesResp.json();
+	if (!takesData.records || takesData.records.length === 0) {
+	  console.log(`😕 [GET /api/takes/${takeID}] No matching record found for TakeID="${takeID}"`);
+	  return res.status(404).json({ error: 'Take not found' });
+	}
+
+	// We'll use the first matching record
+	const takeRecord = takesData.records[0];
+	console.log(`✅ [GET /api/takes/${takeID}] Found Take record: ${takeRecord.id}`);
+
+	// Extract the fields we care about
+	const takeFields = takeRecord.fields;
+	const propID = takeFields.propID; // We'll use this to fetch from Props
+
+	// 2) Fetch the related "Prop" from the "Props" table by propID
+	let propData = null;
+	if (propID) {
+	  const propsUrl = `https://api.airtable.com/v0/${baseID}/Props?filterByFormula={propID}='${propID}'`;
+	  console.log(`🔎 [GET /api/takes/${takeID}] Looking up Props by propID="${propID}"`);
+
+	  const propsResp = await fetch(propsUrl, {
+		headers: { Authorization: `Bearer ${apiKey}` },
+	  });
+
+	  if (!propsResp.ok) {
+		console.error(`❌ [GET /api/takes/${takeID}] Props fetch error: ${propsResp.status} ${propsResp.statusText}`);
+		return res.status(500).json({ error: 'Airtable fetch error (Props)' });
+	  }
+
+	  const propsData = await propsResp.json();
+	  if (propsData.records && propsData.records.length > 0) {
+		const propRecord = propsData.records[0];
+		const pFields = propRecord.fields;
+		console.log(`✅ [GET /api/takes/${takeID}] Found Prop record: ${propRecord.id}`);
+
+		// We only return the fields we need
+		propData = {
+		  airtableRecordId: propRecord.id,
+		  propID: pFields.propID,
+		  propShort: pFields.propShort,
+		  PropSideAShort: pFields.PropSideAShort,
+		  PropSideBShort: pFields.PropSideBShort
+		  // Add any additional Prop fields you want
+		};
+	  } else {
+		console.log(`😕 [GET /api/takes/${takeID}] No Props record found for propID="${propID}"`);
+	  }
+	}
+
+	// 3) Build our "take" response object
+	const take = {
+	  airtableRecordId: takeRecord.id,
+	  takeID: takeFields.TakeID,
+	  propID: takeFields.propID,
+	  propSide: takeFields.propSide,
+	  takeMobile: takeFields.takeMobile,
+	  takePopularity: takeFields.takePopularity,
+	  createdTime: takeRecord.createdTime,
+	};
+
+	// Return the combined data: the take + (optionally) its prop
+	return res.json({
+	  success: true,
+	  take,
+	  prop: propData // may be null if no related Prop found
+	});
+
+  } catch (err) {
+	console.error(`💥 [GET /api/takes/${takeID}] Unexpected error:`, err);
+	return res.status(500).json({ error: 'Server error fetching take' });
   }
 });
 

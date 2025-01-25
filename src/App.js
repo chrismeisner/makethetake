@@ -1,8 +1,17 @@
-// src/App.js
+// File: src/App.js
 import React from 'react';
 import InputMask from 'react-input-mask';
 import './App.css'; // optional if you have global CSS
 
+// 1) React Router imports
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+
+// We'll import TakePage from a separate file
+import TakePage from './TakePage';
+
+// ----------------------
+// Choice Component
+// ----------------------
 function Choice({ label, percentage, isSelected, showResults, onSelect }) {
   const [isHovered, setIsHovered] = React.useState(false);
 
@@ -60,10 +69,9 @@ function Choice({ label, percentage, isSelected, showResults, onSelect }) {
   );
 }
 
-/**
- * PropChoices: We'll pass in sideALabel / sideBLabel
- * from the server instead of "Side A" / "Side B"
- */
+// ----------------------
+// PropChoices Component
+// ----------------------
 function PropChoices({
   selectedChoice,
   resultsRevealed,
@@ -96,6 +104,9 @@ function PropChoices({
   );
 }
 
+// ----------------------
+// PhoneNumberForm Component
+// ----------------------
 function PhoneNumberForm({ phoneNumber, onSubmit, selectedChoice }) {
   const [localPhone, setLocalPhone] = React.useState(phoneNumber);
 
@@ -155,6 +166,9 @@ function PhoneNumberForm({ phoneNumber, onSubmit, selectedChoice }) {
   );
 }
 
+// ----------------------
+// VerificationForm Component
+// ----------------------
 function VerificationForm({
   phoneNumber,
   selectedChoice,
@@ -243,6 +257,9 @@ function VerificationForm({
   );
 }
 
+// ----------------------
+// CompleteStep Component
+// ----------------------
 function CompleteStep() {
   return (
     <div style={{ marginTop: '1rem' }}>
@@ -252,6 +269,9 @@ function CompleteStep() {
   );
 }
 
+// ----------------------
+// VerificationWidget Component
+// ----------------------
 function VerificationWidget() {
   const [currentStep, setCurrentStep] = React.useState('phone');
   const [phoneNumber, setPhoneNumber] = React.useState('');
@@ -318,10 +338,9 @@ function VerificationWidget() {
         onSelectChoice={handleSelectChoice}
         propSideAPct={propData.propSideAPct}
         propSideBPct={propData.propSideBPct}
-
         // new labels from server
-        sideALabel={propData.propSideAMedium}
-        sideBLabel={propData.propSideBMedium}
+        sideALabel={propData.PropSideAShort}
+        sideBLabel={propData.PropSideBShort}
       />
 
       {currentStep === 'phone' && (
@@ -346,11 +365,20 @@ function VerificationWidget() {
   );
 }
 
+// ----------------------
+// App Component w/ Router
+// ----------------------
 function App() {
   return (
-    <div className="App">
-      <VerificationWidget />
-    </div>
+    <Router>
+      <Routes>
+        {/* Root path => Show the VerificationWidget */}
+        <Route path="/" element={<VerificationWidget />} />
+
+        {/* New route => "/takes/:takeID" => Show the TakePage */}
+        <Route path="/takes/:takeID" element={<TakePage />} />
+      </Routes>
+    </Router>
   );
 }
 
