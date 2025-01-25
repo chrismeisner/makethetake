@@ -73,6 +73,7 @@ function Choice({ label, percentage, isSelected, showResults, onSelect }) {
 
 /**
  * PropChoices: Two sides => A and B
+ * We pass in propSideAPct / propSideBPct from the server's dynamic calculation
  */
 function PropChoices({
   selectedChoice,
@@ -247,9 +248,12 @@ function CompleteStep() {
 
 /**
  * The main widget
- *  - loads Prop from /api/prop
+ *  - loads Prop from /api/prop dynamically
  *  - toggles side A/B
  *  - phone => code => logs take => complete
+ *
+ * The server now calculates side A/B percentages by counting
+ * all "Takes" with the matching propID.
  */
 function VerificationWidget() {
   const [currentStep, setCurrentStep] = React.useState('phone');
@@ -311,6 +315,10 @@ function VerificationWidget() {
       <h2>Make The Take</h2>
       <p>{propData.propShort}</p>
 
+      {/* 
+        Now these percentages are dynamically computed by the server 
+        from the "Takes" table for propID = propData.propID
+      */}
       <PropChoices
         selectedChoice={selectedChoice}
         resultsRevealed={resultsRevealed}

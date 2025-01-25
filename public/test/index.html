@@ -12,14 +12,28 @@
 	<h1 class="text-2xl font-bold mb-4 text-center">
 	  Local Testing of Props Widget
 	</h1>
-	<p class="mb-4 text-gray-700">
-	  This is a simple test page that embeds our React app in an iframe. 
-	  We can pass <code>?propID=abc123</code> to test loading a specific proposition.
-	</p>
 
-	<!-- The iframe that points to local dev server root ("/") with a query param -->
+	<!-- Controls to let user type just the propID -->
+	<div class="mb-4">
+	  <label for="propIDValue" class="block font-semibold mb-2">Enter the propID (no /?propID= prefix):</label>
+	  <input
+		id="propIDValue"
+		type="text"
+		class="w-full border border-gray-300 p-2 rounded"
+		value="84vXzIBj1jrXZE"  <!-- default value -->
+	  
+	  <button
+		onclick="updateIframeSrc()"
+		class="mt-2 bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+	  >
+		Update Iframe
+	  </button>
+	</div>
+
+	<!-- The iframe that points to /?propID=someValue -->
 	<iframe
-	  src="/?propID=uiFUABC8OVVATF"
+	  id="myTestIframe"
+	  src="/?propID=84vXzIBj1jrXZE"
 	  class="w-full h-[600px] border border-gray-300"
 	  frameborder="0"
 	  scrolling="auto"
@@ -27,8 +41,21 @@
 
 	<p class="mt-4 text-gray-700">
 	  If you're running <code>npm start</code>, this iframe will load 
-	  <em>localhost:3000/?propID=abc123</em> inside itself.
+	  <em>localhost:3000/?propID=84vXzIBj1jrXZE</em> by default.
+	  Feel free to change the <strong>propID</strong> above.
 	</p>
   </div>
+
+  <!-- Script to update the iframe src with /?propID= prefix -->
+  <script>
+	function updateIframeSrc() {
+	  // Grab the propID from the input
+	  const idValue = document.getElementById('propIDValue').value.trim();
+
+	  // Build the final src => "/?propID=" + propID
+	  const newSrc = '/?propID=' + idValue;
+	  document.getElementById('myTestIframe').src = newSrc;
+	}
+  </script>
 </body>
 </html>

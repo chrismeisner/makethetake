@@ -14,7 +14,11 @@ app.use(express.json());
 
 /**
  * GET /api/prop?propID=xyz
- * Fetch a Prop record from Airtable's "Props" table
+ * 1) Fetch "Props" record for the question text, etc.
+ * 2) Fetch all "Takes" where {propID}='xyz'
+ * 3) Count how many sideA vs sideB
+ * 4) Apply +1 offset to each side => compute integer percentages
+ *    (this ensures 0 real takes => (1 vs 1) => 50/50, etc.)
  */
 app.get('/api/prop', async (req, res) => {
   const propID = req.query.propID;
@@ -29,43 +33,88 @@ app.get('/api/prop', async (req, res) => {
   try {
 	const apiKey   = process.env.AIRTABLE_API_KEY;
 	const baseID   = process.env.AIRTABLE_BASE_ID;
-	const tableName = 'Props'; // your Airtable table
 
-	// Construct Airtable URL with filterByFormula
-	const url = `https://api.airtable.com/v0/${baseID}/${tableName}?filterByFormula={propID}='${propID}'`;
-	console.log(`📡 [api/prop] Fetching from Airtable:\n   ${url}`);
+	// --- 1) Fetch the "Props" record
+	const propsUrl = `https://api.airtable.com/v0/${baseID}/Props?filterByFormula={propID}='${propID}'`;
+	console.log(`📡 [api/prop] Fetching props from:\n   ${propsUrl}`);
 
-	const airtableRes = await fetch(url, {
+	const propsRes = await fetch(propsUrl, {
 	  headers: { Authorization: `Bearer ${apiKey}` },
 	});
-
-	if (!airtableRes.ok) {
-	  console.error(`❌ [api/prop] Airtable responded with status: ${airtableRes.status} ${airtableRes.statusText}`);
-	  return res.status(500).json({ error: 'Airtable fetch error' });
+	if (!propsRes.ok) {
+	  console.error(`❌ [api/prop] Props fetch error: ${propsRes.status} ${propsRes.statusText}`);
+	  return res.status(500).json({ error: 'Airtable fetch error (Props)' });
 	}
+	const propsData = await propsRes.json();
 
-	const data = await airtableRes.json();
-	console.log('🔬 [api/prop] Airtable response data:', JSON.stringify(data, null, 2));
-
-	if (!data.records || data.records.length === 0) {
-	  console.log(`😕 [api/prop] No matching record for propID: ${propID}`);
+	if (!propsData.records || propsData.records.length === 0) {
+	  console.log(`😕 [api/prop] No matching record in "Props" for propID: ${propID}`);
 	  return res.status(404).json({ error: 'Prop not found' });
 	}
 
-	const record = data.records[0];
-	console.log(`✅ [api/prop] Found Airtable record: ${record.id}`);
-	console.log('ℹ️ [api/prop] Fields:', record.fields);
+	const propsRecord = propsData.records[0];
+	const propsFields = propsRecord.fields;
+	console.log(`✅ [api/prop] Found Props record: ${propsRecord.id}`);
 
-	// Grab fields
-	const fields = record.fields;
-	// Respond with the relevant prop data
-	res.json({
-	  propID: fields.propID || propID,
-	  propShort: fields.propShort || '',
-	  propSideAPct: fields.propSideAPct || 0,
-	  propSideBPct: fields.propSideBPct || 0,
-	  // add more if needed
+	// We'll display this in the client
+	const propShort = propsFields.propShort || '';
+
+	// --- 2) Fetch all "Takes" for this propID
+	const takesUrl = `https://api.airtable.com/v0/${baseID}/Takes?filterByFormula={propID}='${propID}'`;
+	console.log(`📡 [api/prop] Fetching takes from:\n   ${takesUrl}`);
+
+	const takesRes = await fetch(takesUrl, {
+	  headers: { Authorization: `Bearer ${apiKey}` },
 	});
+	if (!takesRes.ok) {
+	  console.error(`❌ [api/prop] Takes fetch error: ${takesRes.status} ${takesRes.statusText}`);
+	  return res.status(500).json({ error: 'Airtable fetch error (Takes)' });
+	}
+	const takesData = await takesRes.json();
+
+	console.log(`[api/prop] "Takes" total records fetched: ${takesData.records?.length || 0}`);
+
+	// --- 3) Count how many side A vs side B
+	let sideACount = 0;
+	let sideBCount = 0;
+
+	for (let rec of (takesData.records || [])) {
+	  const side = rec.fields.propSide;
+	  console.log(`[api/prop] Checking record ${rec.id}, propSide=${side}`);
+
+	  if (side === 'A') {
+		sideACount++;
+	  } else if (side === 'B') {
+		sideBCount++;
+	  } else {
+		console.log(`[api/prop] Unknown side "${side}" found, ignoring`);
+	  }
+	}
+
+	console.log(`[api/prop] Real counts => sideA=${sideACount}, sideB=${sideBCount}`);
+
+	// --- 4) Add +1 offset to each side for the calculation
+	const sideAwithOffset = sideACount + 1;
+	const sideBwithOffset = sideBCount + 1;
+	const total = sideAwithOffset + sideBwithOffset;
+
+	// integer percentages
+	const sideAPct = Math.round((sideAwithOffset / total) * 100);
+	const sideBPct = Math.round((sideBwithOffset / total) * 100);
+
+	console.log(`[api/prop] With offset => A=${sideAwithOffset}, B=${sideBwithOffset}, total=${total}`);
+	console.log(`[api/prop] => sideAPct=${sideAPct}%, sideBPct=${sideBPct}%`);
+
+	// Return dynamic percentages + question text
+	res.json({
+	  propID,
+	  propShort,
+	  sideACount,      // real count if you want to show it
+	  sideBCount,      // real count
+	  propSideAPct: sideAPct,
+	  propSideBPct: sideBPct,
+	});
+
   } catch (error) {
 	console.error('💥 [api/prop] Unexpected error:', error);
 	res.status(500).json({ error: 'Something went wrong' });
@@ -74,7 +123,11 @@ app.get('/api/prop', async (req, res) => {
 
 /**
  * POST /api/take
- * Create a record in the "Takes" table with { takeMobile, propID, propSide }
+ * 1) Fetch existing "Takes" for this propID
+ * 2) Count sideA / sideB
+ * 3) Increment whichever side the user picked
+ * 4) Apply +1 offset for the new popularity snapshot => store in "takePopularity"
+ * 5) Create record in "Takes" table
  */
 app.post('/api/take', async (req, res) => {
   const { takeMobile, propID, propSide } = req.body;
@@ -90,10 +143,58 @@ app.post('/api/take', async (req, res) => {
 	const baseID   = process.env.AIRTABLE_BASE_ID;
 	const tableName = 'Takes'; // your Airtable "Takes" table
 
-	const url = `https://api.airtable.com/v0/${baseID}/${tableName}`;
-	console.log(`📡 [api/take] Creating record in "${tableName}" via: ${url}`);
+	// 1) Fetch existing "Takes" for propID
+	const takesUrl = `https://api.airtable.com/v0/${baseID}/Takes?filterByFormula={propID}='${propID}'`;
+	console.log(`🔎 [api/take] Fetching existing takes from:\n   ${takesUrl}`);
 
-	const airtableRes = await fetch(url, {
+	const takesRes = await fetch(takesUrl, {
+	  headers: { Authorization: `Bearer ${apiKey}` },
+	});
+	if (!takesRes.ok) {
+	  console.error(`❌ [api/take] Error fetching existing Takes: ${takesRes.status} ${takesRes.statusText}`);
+	  return res.status(500).json({ error: 'Failed to fetch existing Takes from Airtable' });
+	}
+
+	const takesData = await takesRes.json();
+	console.log(`[api/take] Found ${takesData.records?.length || 0} existing takes for propID=${propID}`);
+
+	// 2) Count sideA / sideB
+	let sideACount = 0;
+	let sideBCount = 0;
+	for (let rec of (takesData.records || [])) {
+	  const side = rec.fields.propSide;
+	  if (side === 'A') sideACount++;
+	  if (side === 'B') sideBCount++;
+	}
+	console.log(`[api/take] Current counts => A=${sideACount}, B=${sideBCount}`);
+
+	// 3) Simulate adding this new take => compute popularity
+	if (propSide === 'A') {
+	  sideACount++;
+	} else {
+	  sideBCount++;
+	}
+
+	// Then apply +1 offset for the snapshot popularity
+	const sideAwithOffset = sideACount + 1;
+	const sideBwithOffset = sideBCount + 1;
+	const total = sideAwithOffset + sideBwithOffset;
+
+	let takePopularity = 0;
+	if (total > 0) {
+	  if (propSide === 'A') {
+		takePopularity = Math.round((sideAwithOffset / total) * 100);
+	  } else {
+		takePopularity = Math.round((sideBwithOffset / total) * 100);
+	  }
+	}
+	console.log(`[api/take] After increment + offset => A=${sideAwithOffset}, B=${sideBwithOffset}, newTakePopularity=${takePopularity}%`);
+
+	// 4) Create the new record in "Takes" table, including "takePopularity"
+	const createUrl = `https://api.airtable.com/v0/${baseID}/${tableName}`;
+	console.log(`📡 [api/take] Creating record in "${tableName}" via: ${createUrl}`);
+
+	const airtableRes = await fetch(createUrl, {
 	  method: 'POST',
 	  headers: {
 		Authorization: `Bearer ${apiKey}`,
@@ -105,7 +206,8 @@ app.post('/api/take', async (req, res) => {
 			fields: {
 			  takeMobile: takeMobile,
 			  propID: propID,
-			  propSide: propSide
+			  propSide: propSide,
+			  takePopularity
 			}
 		  }
 		]
