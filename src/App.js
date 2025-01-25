@@ -3,26 +3,17 @@ import React from 'react';
 import InputMask from 'react-input-mask';
 import './App.css'; // optional if you have global CSS
 
-/**
- * Choice: a single side (A/B) with partial fill meter, hover effect
- */
 function Choice({ label, percentage, isSelected, showResults, onSelect }) {
   const [isHovered, setIsHovered] = React.useState(false);
 
-  // If results not revealed => 0%, else => `${percentage}%`.
   const fillWidth = showResults ? `${percentage}%` : '0%';
 
-  // Gray hover effect
   const baseBackground = '#f3f3f3';
   const hoverBackground = '#e0e0e0';
   const backgroundColor = isHovered ? hoverBackground : baseBackground;
 
-  /**
-   * fillOpacity = 0 if results not revealed
-   * else => isSelected ? 1 : 0.4
-   */
   const fillOpacity = showResults ? (isSelected ? 1 : 0.4) : 0;
-  const fillColor = `rgba(219, 234, 254, ${fillOpacity})`; // #dbeafe with variable opacity
+  const fillColor = `rgba(219, 234, 254, ${fillOpacity})`;
 
   return (
     <div
@@ -42,7 +33,6 @@ function Choice({ label, percentage, isSelected, showResults, onSelect }) {
         textAlign: 'left',
       }}
     >
-      {/* Fill bar behind the text */}
       <div
         style={{
           position: 'absolute',
@@ -55,7 +45,6 @@ function Choice({ label, percentage, isSelected, showResults, onSelect }) {
           transition: 'width 0.4s ease',
         }}
       />
-      {/* Label on top (split so it doesn't jump on reveal) */}
       <div style={{ position: 'relative', zIndex: 1 }}>
         <span>{label}</span>
         <span
@@ -72,19 +61,23 @@ function Choice({ label, percentage, isSelected, showResults, onSelect }) {
 }
 
 /**
- * PropChoices: Two sides => A and B
- * We pass in propSideAPct / propSideBPct from the server's dynamic calculation
+ * PropChoices: We'll pass in sideALabel / sideBLabel
+ * from the server instead of "Side A" / "Side B"
  */
 function PropChoices({
   selectedChoice,
   resultsRevealed,
   onSelectChoice,
   propSideAPct,
-  propSideBPct
+  propSideBPct,
+
+  // new props from server
+  sideALabel,
+  sideBLabel
 }) {
   const choices = [
-    { value: 'A', label: 'Side A', percentage: propSideAPct },
-    { value: 'B', label: 'Side B', percentage: propSideBPct },
+    { value: 'A', label: sideALabel, percentage: propSideAPct },
+    { value: 'B', label: sideBLabel, percentage: propSideBPct },
   ];
 
   return (
@@ -103,16 +96,9 @@ function PropChoices({
   );
 }
 
-/**
- * PhoneNumberForm:
- *  - uses react-input-mask for (999) 999-9999
- *  - calls /api/sendCode with that phone
- *  - if success => onSubmit(localPhone) to move to code step
- */
 function PhoneNumberForm({ phoneNumber, onSubmit, selectedChoice }) {
   const [localPhone, setLocalPhone] = React.useState(phoneNumber);
 
-  // We check if user typed 10 digits + selected side => enable button
   const numericPhone = localPhone.replace(/\D/g, '');
   const isPhoneValid = numericPhone.length === 10;
   const hasSide = selectedChoice !== '';
@@ -120,7 +106,6 @@ function PhoneNumberForm({ phoneNumber, onSubmit, selectedChoice }) {
 
   async function handleSend() {
     try {
-      // 1) Call /api/sendCode with { phone: localPhone }
       const resp = await fetch('/api/sendCode', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -130,7 +115,6 @@ function PhoneNumberForm({ phoneNumber, onSubmit, selectedChoice }) {
         alert('Failed to send verification code');
         return;
       }
-      // 2) If success => go to code step
       onSubmit(localPhone);
     } catch (err) {
       console.error('[PhoneNumberForm] Error sending code:', err);
@@ -157,7 +141,6 @@ function PhoneNumberForm({ phoneNumber, onSubmit, selectedChoice }) {
             />
           )}
         </InputMask>
-
         <button onClick={handleSend} disabled={isDisabled}>
           Send Verification Code
         </button>
@@ -172,12 +155,6 @@ function PhoneNumberForm({ phoneNumber, onSubmit, selectedChoice }) {
   );
 }
 
-/**
- * VerificationForm:
- *  - uses react-input-mask for EXACT 6 digits
- *  - first calls /api/verifyCode => if success => call /api/take
- *  - then proceed to "complete"
- */
 function VerificationForm({
   phoneNumber,
   selectedChoice,
@@ -194,7 +171,7 @@ function VerificationForm({
     }
 
     try {
-      // 1) Verify code with Twilio
+      // 1) verify the code
       const verifyResp = await fetch('/api/verifyCode', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -206,7 +183,7 @@ function VerificationForm({
         return;
       }
 
-      // 2) If code is valid => create the "take"
+      // 2) if code is valid => create the "take"
       const takeBody = {
         takeMobile: phoneNumber,
         propID,
@@ -222,7 +199,7 @@ function VerificationForm({
         return;
       }
 
-      // 3) Move to "complete" step
+      // 3) done
       onComplete();
     } catch (err) {
       console.error('[VerificationForm] Error verifying code:', err);
@@ -231,9 +208,8 @@ function VerificationForm({
   }
 
   function handleResend() {
-    // If you want a "resend code" option, call /api/sendCode again
     console.log(`Resending code to "${phoneNumber}"...`);
-    // Possibly do the same logic as handleSend in PhoneNumberForm
+    // optional: call /api/sendCode again with phoneNumber
   }
 
   return (
@@ -267,9 +243,6 @@ function VerificationForm({
   );
 }
 
-/**
- * Simple "complete" final step
- */
 function CompleteStep() {
   return (
     <div style={{ marginTop: '1rem' }}>
@@ -279,12 +252,6 @@ function CompleteStep() {
   );
 }
 
-/**
- * The main widget
- *  - loads Prop from /api/prop
- *  - toggles side A/B
- *  - phone => code => Twilio verify => if success => log take => complete
- */
 function VerificationWidget() {
   const [currentStep, setCurrentStep] = React.useState('phone');
   const [phoneNumber, setPhoneNumber] = React.useState('');
@@ -294,7 +261,6 @@ function VerificationWidget() {
   const [propData, setPropData] = React.useState(null);
   const [loading, setLoading] = React.useState(true);
 
-  // Load the prop from /api/prop
   React.useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const propID = params.get('propID') || 'defaultProp';
@@ -311,7 +277,6 @@ function VerificationWidget() {
       });
   }, []);
 
-  // user picks side
   function handleSelectChoice(choiceValue) {
     if (choiceValue === selectedChoice) {
       setSelectedChoice('');
@@ -322,13 +287,11 @@ function VerificationWidget() {
     }
   }
 
-  // Once phone is submitted (after we send code => success), go to code step
   function handlePhoneSubmit(phone) {
     setPhoneNumber(phone);
     setCurrentStep('code');
   }
 
-  // Once everything is done, show the "complete" step
   function handleComplete() {
     setCurrentStep('complete');
   }
@@ -349,13 +312,16 @@ function VerificationWidget() {
       <h2>Make The Take</h2>
       <p>{propData.propShort}</p>
 
-      {/* Display the dynamic side A/B with partial fill bars */}
       <PropChoices
         selectedChoice={selectedChoice}
         resultsRevealed={resultsRevealed}
         onSelectChoice={handleSelectChoice}
         propSideAPct={propData.propSideAPct}
         propSideBPct={propData.propSideBPct}
+
+        // new labels from server
+        sideALabel={propData.propSideAMedium}
+        sideBLabel={propData.propSideBMedium}
       />
 
       {currentStep === 'phone' && (

@@ -95,6 +95,7 @@ app.post('/api/verifyCode', async (req, res) => {
  * 2) Fetch all "Takes" where {propID}='xyz'
  * 3) Count how many sideA vs sideB
  * 4) Apply +1 offset => compute integer percentages
+ * 5) Return fields including 'PropSideAMedium' and 'PropSideBMedium'
  */
 app.get('/api/prop', async (req, res) => {
   const propID = req.query.propID;
@@ -130,8 +131,11 @@ app.get('/api/prop', async (req, res) => {
 	const propsFields = propsRecord.fields;
 	console.log(`✅ [api/prop] Found Props record: ${propsRecord.id}`);
 
-	// We'll display this in the client
+	// We'll display these in the client
 	const propShort = propsFields.propShort || '';
+	// Replace "Side A"/"Side B" with these new fields
+	const propSideAMedium = propsFields.PropSideAMedium || 'PropSideAMedium';
+	const propSideBMedium = propsFields.PropSideBMedium || 'PropSideBMedium';
 
 	// --- 2) Fetch all "Takes" for this propID
 	const takesUrl = `https://api.airtable.com/v0/${baseID}/Takes?filterByFormula={propID}='${propID}'`;
@@ -169,14 +173,18 @@ app.get('/api/prop', async (req, res) => {
 	console.log(`[api/prop] With offset => A=${sideAwithOffset}, B=${sideBwithOffset}, total=${total}`);
 	console.log(`[api/prop] => sideAPct=${sideAPct}%, sideBPct=${sideBPct}%`);
 
-	// Return dynamic percentages + question text
+	// 5) Return dynamic percentages + question text + side labels
 	res.json({
 	  propID,
 	  propShort,
+	  // Replacing "Side A"/"Side B" with fields from Airtable
+	  propSideAMedium,
+	  propSideBMedium,
+
 	  sideACount,
 	  sideBCount,
 	  propSideAPct: sideAPct,
-	  propSideBPct: sideBPct,
+	  propSideBPct: sideBPct
 	});
 
   } catch (error) {
