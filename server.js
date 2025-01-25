@@ -95,7 +95,7 @@ app.post('/api/verifyCode', async (req, res) => {
  * 2) Fetch all "Takes" where {propID}='xyz'
  * 3) Count how many sideA vs sideB
  * 4) Apply +1 offset => compute integer percentages
- * 5) Return fields including 'PropSideAShort' and 'PropSideBShort'
+ * 5) Return fields including 'PropSideAShort' and 'PropSideBShort' and 'propStatus'
  */
 app.get('/api/prop', async (req, res) => {
   const propID = req.query.propID;
@@ -135,6 +135,7 @@ app.get('/api/prop', async (req, res) => {
 	const propShort = propsFields.propShort || '';
 	const PropSideAShort = propsFields.PropSideAShort || 'PropSideAShort';
 	const PropSideBShort = propsFields.PropSideBShort || 'PropSideBShort';
+	const propStatus = propsFields.propStatus || 'open'; // possible values: open, closed, gradedA, gradedB
 
 	// --- 2) Fetch all "Takes" for this propID
 	const takesUrl = `https://api.airtable.com/v0/${baseID}/Takes?filterByFormula={propID}='${propID}'`;
@@ -172,7 +173,7 @@ app.get('/api/prop', async (req, res) => {
 	console.log(`[api/prop] With offset => A=${sideAwithOffset}, B=${sideBwithOffset}, total=${total}`);
 	console.log(`[api/prop] => sideAPct=${sideAPct}%, sideBPct=${sideBPct}%`);
 
-	// 5) Return dynamic percentages + question text + side labels
+	// 5) Return dynamic percentages + question text + side labels + propStatus
 	res.json({
 	  propID,
 	  propShort,
@@ -181,7 +182,8 @@ app.get('/api/prop', async (req, res) => {
 	  sideACount,
 	  sideBCount,
 	  propSideAPct: sideAPct,
-	  propSideBPct: sideBPct
+	  propSideBPct: sideBPct,
+	  propStatus // <-- new field
 	});
 
   } catch (error) {
@@ -192,12 +194,13 @@ app.get('/api/prop', async (req, res) => {
 
 /**
  * POST /api/take
- * 1) Fetch existing "Takes" for this propID
- * 2) Count sideA / sideB
- * 3) Compute "pre-take" popularity for the user's side
- * 4) Create record in "Takes"
- * 5) Return newTakeID in JSON response
- * 6) Send user an SMS link to their brand-new take
+ * 1) Ensure the prop is "open" by fetching from "Props"
+ * 2) Fetch existing "Takes" for this propID
+ * 3) Count sideA / sideB
+ * 4) Compute "pre-take" popularity for the user's side
+ * 5) Create record in "Takes"
+ * 6) Return newTakeID in JSON response
+ * 7) Send user an SMS link to their brand-new take
  */
 app.post('/api/take', async (req, res) => {
   const { takeMobile, propID, propSide } = req.body;
@@ -209,11 +212,39 @@ app.post('/api/take', async (req, res) => {
   }
 
   try {
-	const apiKey   = process.env.AIRTABLE_API_KEY;
-	const baseID   = process.env.AIRTABLE_BASE_ID;
+	const apiKey    = process.env.AIRTABLE_API_KEY;
+	const baseID    = process.env.AIRTABLE_BASE_ID;
 	const tableName = 'Takes';
 
-	// 1) Fetch existing Takes
+	// 1) Fetch the "Props" record to check propStatus
+	const propsUrl = `https://api.airtable.com/v0/${baseID}/Props?filterByFormula={propID}='${propID}'`;
+	console.log(`🔎 [api/take] Checking prop status from:\n   ${propsUrl}`);
+
+	const propsRes = await fetch(propsUrl, {
+	  headers: { Authorization: `Bearer ${apiKey}` },
+	});
+	if (!propsRes.ok) {
+	  console.error(`❌ [api/take] Error fetching Props: ${propsRes.status} ${propsRes.statusText}`);
+	  return res.status(500).json({ error: 'Failed to fetch Props from Airtable' });
+	}
+	const propsData = await propsRes.json();
+
+	if (!propsData.records || propsData.records.length === 0) {
+	  console.log(`[api/take] No "Props" record found for propID=${propID}`);
+	  return res.status(404).json({ error: `No prop found for propID=${propID}` });
+	}
+
+	const propsRecord = propsData.records[0];
+	const propStatus  = propsRecord.fields.propStatus || 'open';
+	console.log(`[api/take] The propStatus is "${propStatus}"`);
+
+	// If you want to block new takes when not "open":
+	if (propStatus !== 'open') {
+	  console.log(`[api/take] Prop "${propID}" is not open. Blocking new take.`);
+	  return res.status(400).json({ error: `This prop is '${propStatus}'. No new takes allowed.` });
+	}
+
+	// 2) Fetch existing Takes for this prop
 	const takesUrl = `https://api.airtable.com/v0/${baseID}/Takes?filterByFormula={propID}='${propID}'`;
 	console.log(`🔎 [api/take] Fetching existing takes from:\n   ${takesUrl}`);
 
@@ -228,7 +259,7 @@ app.post('/api/take', async (req, res) => {
 	const takesData = await takesRes.json();
 	console.log(`[api/take] Found ${takesData.records?.length || 0} existing takes for propID=${propID}`);
 
-	// 2) Count sideA / sideB among existing takes
+	// 3) Count sideA / sideB among existing takes
 	let sideACount = 0;
 	let sideBCount = 0;
 	for (let rec of (takesData.records || [])) {
@@ -238,7 +269,7 @@ app.post('/api/take', async (req, res) => {
 	}
 	console.log(`[api/take] Current counts => A=${sideACount}, B=${sideBCount}`);
 
-	// 3) Compute the "pre-take" popularity using +1 offset
+	// 4) Compute the "pre-take" popularity using +1 offset
 	//    (no increment for the new user yet)
 	const sideAwithOffset = sideACount + 1;
 	const sideBwithOffset = sideBCount + 1;
@@ -256,7 +287,7 @@ app.post('/api/take', async (req, res) => {
 	console.log(`[api/take] PRE-take popularity => A=${sideAPct}%, B=${sideBPct}%. 
 				 User chose "${propSide}", so storing ${takePopularity}%`);
 
-	// 4) Create the new record in "Takes" table with that pre-take popularity
+	// 5) Create the new record in "Takes" table with that pre-take popularity
 	const createUrl = `https://api.airtable.com/v0/${baseID}/${tableName}`;
 	console.log(`📡 [api/take] Creating record in "${tableName}" via: ${createUrl}`);
 
@@ -294,18 +325,14 @@ app.post('/api/take', async (req, res) => {
 	const newlyCreatedRecord = data.records[0];
 	const newTakeID = newlyCreatedRecord.fields.TakeID || newlyCreatedRecord.id;
 
-	// 5) Return newTakeID along with success
-	//    so the client can show a link to /takes/:newTakeID
-	// ------------------------------------------------------------------------------
-	// NOTE: This is the new line that includes newTakeID in the server response.
-	// ------------------------------------------------------------------------------
+	// 6) Return newTakeID along with success
 	res.json({
 	  success: true,
 	  created: data.records[0],
 	  newTakeID
 	});
 
-	// 6) Send user an SMS link to their new take (optional but recommended)
+	// 7) Send user an SMS link to their new take (optional but recommended)
 	const numericOnly = takeMobile.replace(/\D/g, '');
 	const e164Phone = '+1' + numericOnly;
 
@@ -394,7 +421,8 @@ app.get('/api/takes/:takeID', async (req, res) => {
 		  propID: pFields.propID,
 		  propShort: pFields.propShort,
 		  PropSideAShort: pFields.PropSideAShort,
-		  PropSideBShort: pFields.PropSideBShort
+		  PropSideBShort: pFields.PropSideBShort,
+		  propStatus: pFields.propStatus || 'open'
 		  // Add any additional Prop fields you want
 		};
 	  } else {

@@ -1,4 +1,4 @@
-// src/TakePage.js
+// File: src/TakePage.js
 import React from 'react';
 import { useParams } from 'react-router-dom';
 
@@ -13,7 +13,7 @@ export default function TakePage() {
 	fetch(`/api/takes/${takeID}`)
 	  .then((res) => res.json())
 	  .then((json) => {
-		console.log('Response JSON from /api/takes:', json); // <-- console.log here
+		console.log('Response JSON from /api/takes:', json);
 		if (json.error) {
 		  setError(json.error);
 		} else {
@@ -41,11 +41,27 @@ export default function TakePage() {
 	return <div style={{ padding: '2rem' }}>Loading Take data...</div>;
   }
 
+  // We'll see if there's a propStatus to show
+  const statusMsg = propData?.propStatus
+	? `Prop status: ${propData.propStatus}`
+	: '(No status field)';
+
+  // If it's graded, let's see if the user was correct or not
+  let wasUserCorrect = null;
+  const userSide = takeData.propSide; // 'A' or 'B'
+  const propStatus = propData?.propStatus;
+  if (propStatus === 'gradedA') {
+	wasUserCorrect = userSide === 'A';
+  } else if (propStatus === 'gradedB') {
+	wasUserCorrect = userSide === 'B';
+  }
+  // wasUserCorrect could be true, false, or null
+
   return (
 	<div style={{ padding: '2rem' }}>
 	  <h2>Take Details (TakeID: {takeID})</h2>
 	  <p>
-		<strong>Airtable Record ID:</strong> {takeData.airtableRecordId}
+		<strong>Airtable Record ID (Take):</strong> {takeData.airtableRecordId}
 	  </p>
 	  <p>
 		<strong>Chosen Side:</strong> {takeData.propSide}
@@ -63,7 +79,6 @@ export default function TakePage() {
 		<strong>Created Time:</strong> {takeData.createdTime}
 	  </p>
 
-	  {/* Now show related Prop info, if available */}
 	  {propData ? (
 		<div style={{ marginTop: '2rem' }}>
 		  <h3>Prop Details</h3>
@@ -82,7 +97,19 @@ export default function TakePage() {
 		  <p>
 			<strong>Side B Label:</strong> {propData.PropSideBShort}
 		  </p>
-		  {/* etc. */}
+		  <p>
+			<strong>propStatus:</strong> {propData.propStatus}
+		  </p>
+
+		  {/* Additional message if graded */}
+		  {(propStatus === 'gradedA' || propStatus === 'gradedB') && (
+			<div style={{ marginTop: '1rem' }}>
+			  {wasUserCorrect
+				? <p style={{ color: 'green' }}>✅ You chose the correct side!</p>
+				: <p style={{ color: 'red' }}>❌ You chose the incorrect side.</p>
+			  }
+			</div>
+		  )}
 		</div>
 	  ) : (
 		<div style={{ marginTop: '2rem', color: 'gray' }}>

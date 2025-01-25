@@ -12,7 +12,15 @@ import TakePage from './TakePage';
 // ----------------------
 // Choice Component
 // ----------------------
-function Choice({ label, percentage, isSelected, showResults, onSelect }) {
+function Choice({
+  label,
+  percentage,
+  sideValue, // 'A' or 'B'
+  isSelected,
+  showResults,
+  onSelect,
+  propStatus
+}) {
   const [isHovered, setIsHovered] = React.useState(false);
 
   const fillWidth = showResults ? `${percentage}%` : '0%';
@@ -21,25 +29,38 @@ function Choice({ label, percentage, isSelected, showResults, onSelect }) {
   const hoverBackground = '#e0e0e0';
   const backgroundColor = isHovered ? hoverBackground : baseBackground;
 
+  // If the prop is graded, figure out which side is “correct.”
+  let correctnessIcon = null;
+  if (propStatus === 'gradedA') {
+    correctnessIcon = sideValue === 'A' ? '✅' : '❌';
+  } else if (propStatus === 'gradedB') {
+    correctnessIcon = sideValue === 'B' ? '✅' : '❌';
+  }
+
+  // We'll disable onClick unless the prop is open
+  const clickable = propStatus === 'open';
+
+  // If showResults is true or the prop is not open, we set fillOpacity
   const fillOpacity = showResults ? (isSelected ? 1 : 0.4) : 0;
   const fillColor = `rgba(219, 234, 254, ${fillOpacity})`;
 
   return (
     <div
-      onClick={onSelect}
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
+      onClick={clickable ? onSelect : undefined}
+      onMouseEnter={() => clickable && setIsHovered(true)}
+      onMouseLeave={() => clickable && setIsHovered(false)}
       style={{
         position: 'relative',
         border: '1px solid #ddd',
         marginBottom: '0.5rem',
         padding: '1rem',
-        cursor: 'pointer',
+        cursor: clickable ? 'pointer' : 'default',
         outline: isSelected ? '2px solid #3b82f6' : 'none',
         overflow: 'hidden',
         backgroundColor,
         transition: 'background-color 0.2s ease',
         textAlign: 'left',
+        opacity: clickable ? 1 : 0.8
       }}
     >
       <div
@@ -51,15 +72,17 @@ function Choice({ label, percentage, isSelected, showResults, onSelect }) {
           height: '100%',
           backgroundColor: fillColor,
           zIndex: 0,
-          transition: 'width 0.4s ease',
+          transition: 'width 0.4s ease'
         }}
       />
       <div style={{ position: 'relative', zIndex: 1 }}>
-        <span>{label}</span>
+        <span>
+          {label} {correctnessIcon && <strong>{correctnessIcon}</strong>}
+        </span>
         <span
           style={{
             visibility: showResults ? 'visible' : 'hidden',
-            marginLeft: '6px',
+            marginLeft: '6px'
           }}
         >
           ({percentage}%)
@@ -79,25 +102,32 @@ function PropChoices({
   propSideAPct,
   propSideBPct,
   sideALabel,
-  sideBLabel
+  sideBLabel,
+  propStatus
 }) {
+  // We create the array of choices:
   const choices = [
     { value: 'A', label: sideALabel, percentage: propSideAPct },
-    { value: 'B', label: sideBLabel, percentage: propSideBPct },
+    { value: 'B', label: sideBLabel, percentage: propSideBPct }
   ];
 
   return (
     <div style={{ marginBottom: '1rem' }}>
-      {choices.map((choice) => (
-        <Choice
-          key={choice.value}
-          label={choice.label}
-          percentage={choice.percentage}
-          isSelected={selectedChoice === choice.value}
-          showResults={resultsRevealed}
-          onSelect={() => onSelectChoice(choice.value)}
-        />
-      ))}
+      {choices.map((choice) => {
+        const isSelected = selectedChoice === choice.value;
+        return (
+          <Choice
+            key={choice.value}
+            label={choice.label}
+            percentage={choice.percentage}
+            sideValue={choice.value}
+            isSelected={isSelected}
+            showResults={resultsRevealed}
+            onSelect={() => onSelectChoice(choice.value)}
+            propStatus={propStatus}
+          />
+        );
+      })}
     </div>
   );
 }
@@ -316,13 +346,34 @@ function VerificationWidget() {
       });
   }, []);
 
+  if (loading) {
+    return <div style={{ padding: '2rem' }}>Loading proposition...</div>;
+  }
+
+  if (!propData || propData.error) {
+    return (
+      <div style={{ padding: '2rem' }}>
+        {propData?.error || 'Error loading proposition'}
+      </div>
+    );
+  }
+
+  const propStatus = propData.propStatus || 'open';
+
+  // We want to reveal results if the user has selected a side or if propStatus isn't "open"
+  const forcedResults = propStatus !== 'open';
+  const effectiveResultsRevealed = forcedResults || resultsRevealed;
+
   function handleSelectChoice(choiceValue) {
-    if (choiceValue === selectedChoice) {
-      setSelectedChoice('');
-      setResultsRevealed(false);
-    } else {
-      setSelectedChoice(choiceValue);
-      setResultsRevealed(true);
+    if (!forcedResults) {
+      // Only allow changing the choice if the prop is still open
+      if (choiceValue === selectedChoice) {
+        setSelectedChoice('');
+        setResultsRevealed(false);
+      } else {
+        setSelectedChoice(choiceValue);
+        setResultsRevealed(true);
+      }
     }
   }
 
@@ -338,33 +389,38 @@ function VerificationWidget() {
     setCurrentStep('complete');
   }
 
-  if (loading) {
-    return <div style={{ padding: '2rem' }}>Loading proposition...</div>;
-  }
-  if (!propData || propData.error) {
-    return (
-      <div style={{ padding: '2rem' }}>
-        {propData?.error || 'Error loading proposition'}
-      </div>
-    );
-  }
-
   return (
     <div style={{ padding: '2rem', maxWidth: '600px', margin: '0 auto' }}>
       <h2>Make The Take</h2>
       <p>{propData.propShort}</p>
 
+      {propStatus === 'closed' && (
+        <p style={{ color: 'blue', fontWeight: 'bold' }}>
+          This prop is closed. You cannot vote anymore.
+        </p>
+      )}
+      {(propStatus === 'gradedA' || propStatus === 'gradedB') && (
+        <p style={{ color: 'green', fontWeight: 'bold' }}>
+          This prop has been graded. 
+          {propStatus === 'gradedA'
+            ? 'Side A is correct.'
+            : 'Side B is correct.'}
+        </p>
+      )}
+
       <PropChoices
         selectedChoice={selectedChoice}
-        resultsRevealed={resultsRevealed}
+        resultsRevealed={effectiveResultsRevealed}
         onSelectChoice={handleSelectChoice}
         propSideAPct={propData.propSideAPct}
         propSideBPct={propData.propSideBPct}
         sideALabel={propData.PropSideAShort}
         sideBLabel={propData.PropSideBShort}
+        propStatus={propStatus}
       />
 
-      {currentStep === 'phone' && (
+      {/* Only allow phone + code steps if the prop is "open" */}
+      {propStatus === 'open' && currentStep === 'phone' && (
         <PhoneNumberForm
           phoneNumber={phoneNumber}
           onSubmit={handlePhoneSubmit}
@@ -372,7 +428,7 @@ function VerificationWidget() {
         />
       )}
 
-      {currentStep === 'code' && (
+      {propStatus === 'open' && currentStep === 'code' && (
         <VerificationForm
           phoneNumber={phoneNumber}
           selectedChoice={selectedChoice}
