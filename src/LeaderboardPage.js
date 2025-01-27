@@ -1,6 +1,7 @@
 // File: /Users/chrismeisner/Projects/make-the-take/src/LeaderboardPage.js
 
 import React from 'react';
+import { Link } from 'react-router-dom';
 
 export default function LeaderboardPage() {
   const [leaderboard, setLeaderboard] = React.useState([]);
@@ -46,12 +47,26 @@ export default function LeaderboardPage() {
 		  </tr>
 		</thead>
 		<tbody>
-		  {leaderboard.map((item) => (
-			<tr key={item.phone} style={{ borderBottom: '1px solid #eee' }}>
-			  <td style={{ padding: '0.5rem' }}>{item.phone}</td>
-			  <td style={{ padding: '0.5rem' }}>{item.count}</td>
-			</tr>
-		  ))}
+		  {leaderboard.map((item) => {
+			// item.phone => e.g. "+16025551212"
+			// item.profileID => e.g. "abcd1234" or null if none
+			return (
+			  <tr key={item.phone} style={{ borderBottom: '1px solid #eee' }}>
+				<td style={{ padding: '0.5rem' }}>
+				  {item.profileID ? (
+					// Link to /profile/:profileID
+					<Link to={`/profile/${item.profileID}`}>
+					  {item.phone}
+					</Link>
+				  ) : (
+					// If there's no profileID, just show text
+					item.phone
+				  )}
+				</td>
+				<td style={{ padding: '0.5rem' }}>{item.count}</td>
+			  </tr>
+			);
+		  })}
 		</tbody>
 	  </table>
 	</div>
