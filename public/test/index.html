@@ -1,4 +1,3 @@
-<!-- public/test/index.html -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -15,13 +14,15 @@
 
 	<!-- Controls to let user type just the propID -->
 	<div class="mb-4">
-	  <label for="propIDValue" class="block font-semibold mb-2">Enter the propID (no /?propID= prefix):</label>
+	  <label for="propIDValue" class="block font-semibold mb-2">
+		Enter the propID (no /widget?propID= prefix):
+	  </label>
 	  <input
 		id="propIDValue"
 		type="text"
 		class="w-full border border-gray-300 p-2 rounded"
-		value="84vXzIBj1jrXZE"  <!-- default value -->
-	  
+		value="84vXzIBj1jrXZE"  <!-- default value, change as needed -->
+	  />
 	  <button
 		onclick="updateIframeSrc()"
 		class="mt-2 bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
@@ -30,30 +31,30 @@
 	  </button>
 	</div>
 
-	<!-- The iframe that points to /?propID=someValue -->
+	<!-- The iframe now points to /widget?propID=... instead of /?propID=... -->
 	<iframe
 	  id="myTestIframe"
-	  src="/?propID=84vXzIBj1jrXZE"
+	  src="/widget?propID=84vXzIBj1jrXZE"
 	  class="w-full h-[600px] border border-gray-300"
 	  frameborder="0"
 	  scrolling="auto"
 	></iframe>
 
 	<p class="mt-4 text-gray-700">
-	  If you're running <code>npm start</code>, this iframe will load 
-	  <em>localhost:3000/?propID=84vXzIBj1jrXZE</em> by default.
+	  If you’re running <code>npm start</code>, this iframe will load
+	  <em>localhost:3000/widget?propID=84vXzIBj1jrXZE</em> by default.
 	  Feel free to change the <strong>propID</strong> above.
 	</p>
   </div>
 
-  <!-- Script to update the iframe src with /?propID= prefix -->
+  <!-- Script to update the iframe src with /widget?propID= prefix -->
   <script>
 	function updateIframeSrc() {
 	  // Grab the propID from the input
 	  const idValue = document.getElementById('propIDValue').value.trim();
 
-	  // Build the final src => "/?propID=" + propID
-	  const newSrc = '/?propID=' + idValue;
+	  // Build the final src => "/widget?propID=" + propID
+	  const newSrc = '/widget?propID=' + idValue;
 	  document.getElementById('myTestIframe').src = newSrc;
 	}
   </script>

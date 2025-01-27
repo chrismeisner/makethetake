@@ -349,7 +349,7 @@ app.post('/api/take', async (req, res) => {
 
 // --------------------------------------
 // 6) GET /api/takes/:takeID
-//    => Now uses expand: ['Profile'] to fetch linked Profile details in one query
+//    => (Note: "expand" is ignored by the official JS client. May return only IDs.)
 // --------------------------------------
 app.get('/api/takes/:takeID', async (req, res) => {
   const { takeID } = req.params;
@@ -357,12 +357,13 @@ app.get('/api/takes/:takeID', async (req, res) => {
 
   try {
 	// 1) Find the "Take" by formula => {TakeID}='someValue'
-	//    with expand: ['Profile'] to get user info from the linked record
+	//    "expand: ['Profile']" won't truly work in the official JS client,
+	//    so we might need a second fetch below if we only get record IDs.
 	const foundTakes = await base('Takes')
 	  .select({
 		filterByFormula: `{TakeID}='${takeID}'`,
 		maxRecords: 1,
-		expand: ['Profile'], // <--- HERE WE ASK AIRTABLE TO RETURN EXPANDED PROFILE DATA
+		expand: ['Profile'], // might be ignored, see note
 	  })
 	  .all();
 
@@ -421,15 +422,25 @@ app.get('/api/takes/:takeID', async (req, res) => {
 	  });
 	}
 
-	// 4) Because we used expand: ["Profile"], the Profile field is an array of expanded records
-	//    instead of just record IDs.
+	// 4) Because expand is likely ignored, "Profile" might be an array of IDs
 	let expandedProfileFields = null;
 	if (Array.isArray(takeFields.Profile) && takeFields.Profile.length > 0) {
-	  // The first linked profile's fields
-	  expandedProfileFields = takeFields.Profile[0].fields || null;
+	  // If the first item is an actual record object, we can read .fields.
+	  // If it's just a string ID, we do a second fetch:
+	  if (typeof takeFields.Profile[0] === 'object') {
+		expandedProfileFields = takeFields.Profile[0].fields || null;
+	  } else {
+		// We have a record ID string:
+		const profileIDString = takeFields.Profile[0];
+		// Make a second call to fetch the profile record:
+		const profileRec = await base('Profiles').find(profileIDString);
+		if (profileRec && profileRec.fields) {
+		  expandedProfileFields = profileRec.fields;
+		}
+	  }
 	}
 
-	// Extract relevant fields from the expanded profile
+	// Extract relevant fields from the expanded/fetched profile
 	const profileID = expandedProfileFields?.profileID || null;
 	const profileMobile = expandedProfileFields?.profileMobile || null;
 	const profileUsername = expandedProfileFields?.profileUsername || null;
@@ -463,7 +474,7 @@ app.get('/api/takes/:takeID', async (req, res) => {
 
 // --------------------------------------
 // 7) GET /api/leaderboard
-//    This route now also returns profileID so the UI can link phones to profiles
+//    This route also returns profileID so the UI can link phones to profiles
 // --------------------------------------
 app.get('/api/leaderboard', async (req, res) => {
   try {
@@ -476,7 +487,6 @@ app.get('/api/leaderboard', async (req, res) => {
 	for (const profileRec of allProfiles) {
 	  const pf = profileRec.fields;
 	  if (pf.profileMobile && pf.profileID) {
-		// e.g. phone = "+16023802794", profileID = "abcd1234"
 		phoneToProfileID.set(pf.profileMobile, pf.profileID);
 	  }
 	}
@@ -497,16 +507,14 @@ app.get('/api/leaderboard', async (req, res) => {
 	  .map(([phone, count]) => ({
 		phone,
 		count,
-		profileID: phoneToProfileID.get(phone) || null, // might be null if no matching profile
+		profileID: phoneToProfileID.get(phone) || null, 
 	  }))
 	  .sort((a, b) => b.count - a.count);
 
 	return res.json({ success: true, leaderboard });
   } catch (err) {
 	console.error('[GET /api/leaderboard] Unexpected error:', err);
-	return res
-	  .status(500)
-	  .json({ error: 'Server error generating leaderboard' });
+	return res.status(500).json({ error: 'Server error generating leaderboard' });
   }
 });
 
@@ -515,9 +523,7 @@ app.get('/api/leaderboard', async (req, res) => {
 // --------------------------------------
 app.get('/api/profile/:profileID', async (req, res) => {
   const { profileID } = req.params;
-  console.log(
-	`\n[GET /api/profile/${profileID}] Starting lookup by profileID...`
-  );
+  console.log(`\n[GET /api/profile/${profileID}] Starting lookup...`);
 
   try {
 	// 1) Fetch the Profile by filter
@@ -529,9 +535,7 @@ app.get('/api/profile/:profileID', async (req, res) => {
 	  .all();
 
 	if (!profileRecords || profileRecords.length === 0) {
-	  console.log(
-		`[GET /api/profile/${profileID}] No matching profile found!`
-	  );
+	  console.log(`[GET /api/profile/${profileID}] No matching profile found!`);
 	  return res.status(404).json({
 		error: `Profile not found for profileID="${profileID}"`,
 	  });
@@ -545,20 +549,15 @@ app.get('/api/profile/:profileID', async (req, res) => {
 	  pf
 	);
 
-	// 2) If the "Takes" field is just an array of string IDs, we do a second query.
+	// 2) If "Takes" is an array of string IDs, do a second query
 	const linkedTakes = pf.Takes || [];
 	let userTakes = [];
 
 	if (linkedTakes.length > 0) {
-	  // If the first item is a string, they're not expanded
 	  if (typeof linkedTakes[0] === 'string') {
-		console.log(
-		  '[GET /api/profile] "Takes" are just string IDs, fetching them...'
-		);
-		const filterClauses = linkedTakes.map(
-		  (id) => `RECORD_ID() = '${id}'`
-		);
-		// separate each condition with commas for OR()
+		// We have record IDs
+		console.log('[GET /api/profile] "Takes" are record IDs, fetching them...');
+		const filterClauses = linkedTakes.map((id) => `RECORD_ID() = '${id}'`);
 		const joined = filterClauses.join(', ');
 		const filter = `OR(${joined})`;
 
@@ -619,7 +618,89 @@ app.get('/api/profile/:profileID', async (req, res) => {
 });
 
 // --------------------------------------
-// 9) Catch-all route => serve index.html
+// 9) GET /api/feed
+//    - Returns the most recent Takes, each with associated Profile info (if available)
+//      and the related Prop info (propShort, propStatus, etc.)
+// --------------------------------------
+app.get('/api/feed', async (req, res) => {
+  try {
+	// 1) Fetch the 20 most recent Takes (adjust as needed)
+	//    If "Created" is not a field in your base, rename or remove the 'sort' property
+	const takeRecords = await base('Takes')
+	  .select({
+		maxRecords: 20,
+		sort: [{ field: 'Created', direction: 'desc' }], // adjust if your field is different
+		expand: ['Profile'], // Usually ignored by official JS client
+	  })
+	  .all();
+
+	const feed = [];
+
+	for (const takeRecord of takeRecords) {
+	  const fields = takeRecord.fields;
+	  const createdTime = takeRecord._rawJson.createdTime;
+
+	  const item = {
+		takeID: fields.TakeID || takeRecord.id,
+		propID: fields.propID,
+		propSide: fields.propSide,
+		createdTime,
+		takePopularity: fields.takePopularity || 0,
+	  };
+
+	  // Profile might be an array of IDs or objects
+	  if (Array.isArray(fields.Profile) && fields.Profile.length > 0) {
+		if (typeof fields.Profile[0] === 'object') {
+		  // Possibly expanded object
+		  const profileFields = fields.Profile[0].fields;
+		  item.profileID = profileFields.profileID;
+		  item.profileMobile = profileFields.profileMobile;
+		  item.profileUsername = profileFields.profileUsername || null;
+		} else {
+		  // We have a record ID, so do a second fetch to get profile fields
+		  const profileId = fields.Profile[0];
+		  const profileRec = await base('Profiles').find(profileId);
+		  if (profileRec && profileRec.fields) {
+			item.profileID = profileRec.fields.profileID;
+			item.profileMobile = profileRec.fields.profileMobile;
+			item.profileUsername = profileRec.fields.profileUsername || null;
+		  }
+		}
+	  }
+
+	  // Next, fetch the associated Prop by propID
+	  if (fields.propID) {
+		const foundProps = await base('Props')
+		  .select({
+			filterByFormula: `{propID} = '${fields.propID}'`,
+			maxRecords: 1,
+		  })
+		  .all();
+
+		if (foundProps && foundProps.length > 0) {
+		  const p = foundProps[0].fields;
+		  item.propShort = p.propShort || '';
+		  item.PropSideAShort = p.PropSideAShort || 'Side A';
+		  item.PropSideBShort = p.PropSideBShort || 'Side B';
+		  item.propStatus = p.propStatus || 'open';
+		}
+	  }
+
+	  feed.push(item);
+	}
+
+	return res.json({ success: true, feed });
+  } catch (err) {
+	console.error('[api/feed] error:', err);
+	return res.status(500).json({
+	  success: false,
+	  error: 'Server error fetching feed',
+	});
+  }
+});
+
+// --------------------------------------
+// 10) Catch-all route => serve index.html
 // --------------------------------------
 app.get('*', (req, res) => {
   console.log('[server] Serving index.html for unmatched route');
@@ -627,7 +708,7 @@ app.get('*', (req, res) => {
 });
 
 // --------------------------------------
-// 10) Start the server
+// 11) Start the server
 // --------------------------------------
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
