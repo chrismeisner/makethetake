@@ -1,3 +1,5 @@
+// File: server.js
+
 require('dotenv').config();
 const path = require('path');
 const express = require('express');
@@ -208,7 +210,8 @@ app.get('/api/prop', async (req, res) => {
 	  .select({ filterByFormula: `{propID}='${propID}'`, maxRecords: 5000 })
 	  .all();
 
-	let sideACount = 0, sideBCount = 0;
+	let sideACount = 0,
+	  sideBCount = 0;
 	for (const t of allTakes) {
 	  const s = t.fields.propSide;
 	  if (s === 'A') sideACount++;
@@ -277,7 +280,8 @@ app.post('/api/take', async (req, res) => {
 	  .select({ filterByFormula: `{propID}='${propID}'`, maxRecords: 5000 })
 	  .all();
 
-	let sideACount = 0, sideBCount = 0;
+	let sideACount = 0,
+	  sideBCount = 0;
 	for (const t of allTakes) {
 	  const s = t.fields.propSide;
 	  if (s === 'A') sideACount++;
@@ -470,13 +474,14 @@ app.get('/api/leaderboard', async (req, res) => {
 
 // --------------------------------------
 // 8) GET /api/profile/:profileID
+//    <-- FIXED the variable name usage here
 // --------------------------------------
 app.get('/api/profile/:profileID', async (req, res) => {
   const { profileID } = req.params;
   console.log(`[GET /api/profile/${profileID}] Starting lookup...`);
 
   try {
-	// fetch 1 profile
+	// 1) fetch 1 profile
 	const found = await base('Profiles')
 	  .select({
 		filterByFormula: `{profileID}='${profileID}'`,
@@ -491,10 +496,15 @@ app.get('/api/profile/:profileID', async (req, res) => {
 	const profRec = found[0];
 	const pf = profRec.fields;
 
-	// fetch their Takes (if "Takes" is an array of record IDs)
+	// 2) if "Takes" is an array of record IDs
 	let userTakes = [];
 	if (Array.isArray(pf.Takes) && pf.Takes.length > 0) {
-	  const filterFormula = `OR(${pf.Takes.map((id) => `RECORD_ID() = '${id}'`).join(',')})`;
+	  // Construct the filterByFormula string properly
+	  const filterByFormula = `OR(${pf.Takes.map(
+		(id) => `RECORD_ID() = '${id}'`
+	  ).join(',')})`;
+
+	  // Then pass it as "filterByFormula"
 	  const takeRecords = await base('Takes')
 		.select({ filterByFormula, maxRecords: 5000 })
 		.all();
@@ -559,22 +569,22 @@ app.get('/api/feed', async (req, res) => {
 	  };
 
 	  // optionally fetch prop or profile data, etc.
-	  // (omitted for brevity)
 	  feed.push(item);
 	}
 
 	return res.json({ success: true, feed });
   } catch (err) {
 	console.error('[api/feed] error:', err);
-	return res.status(500).json({ success: false, error: 'Server error fetching feed' });
+	return res.status(500).json({
+	  success: false,
+	  error: 'Server error fetching feed',
+	});
   }
 });
 
 // --------------------------------------
 // 10) GET /api/props
-//     Includes:
-//       - text-based subjectID => subjectTitle/subjectLogo
-//       - matched content => content array
+//     (Text-based subjectID => subjectTitle/subjectLogo, plus matched content)
 // --------------------------------------
 app.get('/api/props', async (req, res) => {
   try {
@@ -586,9 +596,6 @@ app.get('/api/props', async (req, res) => {
 	  })
 	  .all();
 
-	// We'll gather:
-	// - all subjectIDs from `propSubjectID` text fields
-	// - all propIDs so we can fetch matching Content
 	const subjectIDs = new Set();
 	const propIDs = new Set();
 
@@ -605,7 +612,6 @@ app.get('/api/props', async (req, res) => {
 	// 2) Build a map of subjectID => {subjectTitle, subjectLogo}
 	let subjectsMap = new Map();
 	if (subjectIDs.size > 0) {
-	  // e.g. OR({subjectID} = "SABC", {subjectID} = "SXYZ")
 	  const subFilter = `OR(${[...subjectIDs]
 		.map((id) => `{subjectID} = "${id}"`)
 		.join(',')})`;
@@ -620,7 +626,7 @@ app.get('/api/props', async (req, res) => {
 	  subjectsMap = new Map();
 	  for (const subRec of subjectRecords) {
 		const sf = subRec.fields;
-		const subjID = sf.subjectID; // text
+		const subjID = sf.subjectID;
 		if (!subjID) continue;
 
 		subjectsMap.set(subjID, {
@@ -630,10 +636,9 @@ app.get('/api/props', async (req, res) => {
 	  }
 	}
 
-	// 3) Build a map of propID => array of content (from "Content" table)
+	// 3) Build a map of propID => array of content
 	let contentMap = new Map();
 	if (propIDs.size > 0) {
-	  // e.g. OR({propID} = "abc123", {propID} = "xyz789")
 	  const contentFilter = `OR(${[...propIDs]
 		.map((id) => `{propID} = "${id}"`)
 		.join(',')})`;
@@ -645,13 +650,11 @@ app.get('/api/props', async (req, res) => {
 		})
 		.all();
 
-	  // group them by propID
 	  for (const cRec of contentRecords) {
 		const cf = cRec.fields;
-		const cPropID = cf.propID; // text: e.g. "BZFnovKHUZyxOR"
+		const cPropID = cf.propID;
 		if (!cPropID) continue;
 
-		// Build a small object with contentTitle + contentURL
 		const contentItem = {
 		  contentTitle: cf.contentTitle || '',
 		  contentURL: cf.contentURL || '',
@@ -669,10 +672,7 @@ app.get('/api/props', async (req, res) => {
 	  const f = propRec.fields;
 	  const createdAt = propRec._rawJson.createdTime;
 
-	  // If text-based subject ID
 	  const subID = f.propSubjectID || '';
-
-	  // Match subject
 	  let subjectTitle = '';
 	  let subjectLogoUrl = '';
 	  const subjObj = subjectsMap.get(subID);
@@ -683,7 +683,6 @@ app.get('/api/props', async (req, res) => {
 		}
 	  }
 
-	  // Match content array
 	  const cArr = contentMap.get(f.propID) || [];
 
 	  return {
@@ -700,7 +699,7 @@ app.get('/api/props', async (req, res) => {
 		subjectLogoUrl,
 
 		// content-related
-		content: cArr, // array of { contentTitle, contentURL }
+		content: cArr,
 	  };
 	});
 

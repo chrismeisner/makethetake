@@ -44,7 +44,7 @@ export default function Layout() {
 			  Poll Demo
 			</Link>
 
-			{/* If user is logged in, link to their real profile; otherwise a fallback */}
+			{/* If user is logged in, link to their real profile; otherwise say "Not logged in" */}
 			{loggedInUser ? (
 			  <Link
 				to={`/profile/${loggedInUser.profileID}`}
@@ -53,12 +53,10 @@ export default function Layout() {
 				My Profile
 			  </Link>
 			) : (
-			  <Link to="/profile/exampleProfileID" className="hover:text-gray-300">
-				Profile
-			  </Link>
+			  <span>Not logged in</span>
 			)}
 
-			{/* If logged in, show phone & logout; otherwise show "Not logged in" */}
+			{/* If logged in, show phone & logout; otherwise show "Not logged in" again */}
 			{loggedInUser ? (
 			  <div className="flex items-center space-x-2">
 				<span>Logged in as {loggedInUser.phone}</span>
