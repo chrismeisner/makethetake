@@ -24,7 +24,6 @@ function Layout() {
           <Link to="/" className="text-xl font-bold hover:text-gray-200">
             Make The Take
           </Link>
-
           <nav className="space-x-4">
             <Link to="/leaderboard" className="hover:text-gray-300">
               Leaderboard
@@ -39,7 +38,6 @@ function Layout() {
           </nav>
         </div>
       </header>
-
       {/* Main content */}
       <main className="flex-grow container mx-auto px-4 py-6">
         <Outlet />
@@ -52,19 +50,17 @@ export default function App() {
   return (
     <Router>
       <Routes>
-        {/* Wrap everything in the Layout */}
+        {/* Regular routes use the Layout */}
         <Route element={<Layout />}>
           <Route path="/" element={<HomePage />} />
-          <Route path="/widget" element={<VerificationWidget />} />
-
-          {/* ADD THIS ROUTE for /test */}
-          <Route path="/test" element={<VerificationWidget />} />
-          {/* Now going to /test will show the widget */}
-
           <Route path="/takes/:takeID" element={<TakePage />} />
           <Route path="/leaderboard" element={<LeaderboardPage />} />
           <Route path="/profile/:profileID" element={<ProfilePage />} />
         </Route>
+
+        {/* Routes outside the Layout (no nav/header) */}
+        <Route path="/widget" element={<VerificationWidget />} />
+        <Route path="/test" element={<VerificationWidget />} />
       </Routes>
     </Router>
   );
