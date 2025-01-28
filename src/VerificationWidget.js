@@ -1,7 +1,12 @@
 // File: src/VerificationWidget.js
-import React from 'react';
-import InputMask from 'react-input-mask';
 
+import React, { useContext, useState, useEffect } from 'react';
+import InputMask from 'react-input-mask';
+import { UserContext } from './UserContext';
+
+// --------------------------------------
+// Choice & PropChoices (unchanged)
+// --------------------------------------
 function Choice({
   label,
   percentage,
@@ -11,14 +16,13 @@ function Choice({
   onSelect,
   propStatus
 }) {
-  const [isHovered, setIsHovered] = React.useState(false);
+  const [isHovered, setIsHovered] = useState(false);
 
   const fillWidth = showResults ? `${percentage}%` : '0%';
   const baseBackground = '#f3f3f3';
   const hoverBackground = '#e0e0e0';
   const backgroundColor = isHovered ? hoverBackground : baseBackground;
 
-  // If the prop is graded, figure out which side is correct
   let correctnessIcon = null;
   if (propStatus === 'gradedA') {
 	correctnessIcon = sideValue === 'A' ? '✅' : '❌';
@@ -26,10 +30,7 @@ function Choice({
 	correctnessIcon = sideValue === 'B' ? '✅' : '❌';
   }
 
-  // We'll disable onClick unless the prop is open
   const clickable = propStatus === 'open';
-
-  // If showResults is true or the prop is not open, set fillOpacity
   const fillOpacity = showResults ? (isSelected ? 1 : 0.4) : 0;
   const fillColor = `rgba(219, 234, 254, ${fillOpacity})`;
 
@@ -117,9 +118,11 @@ function PropChoices({
   );
 }
 
+// --------------------------------------
+// PhoneNumberForm & VerificationForm
+// --------------------------------------
 function PhoneNumberForm({ phoneNumber, onSubmit, selectedChoice }) {
-  const [localPhone, setLocalPhone] = React.useState(phoneNumber);
-
+  const [localPhone, setLocalPhone] = useState(phoneNumber);
   const numericPhone = localPhone.replace(/\D/g, '');
   const isPhoneValid = numericPhone.length === 10;
   const hasSide = selectedChoice !== '';
@@ -177,7 +180,8 @@ function PhoneNumberForm({ phoneNumber, onSubmit, selectedChoice }) {
 }
 
 function VerificationForm({ phoneNumber, selectedChoice, propID, onComplete }) {
-  const [localCode, setLocalCode] = React.useState('');
+  const [localCode, setLocalCode] = useState('');
+  const { setLoggedInUser } = useContext(UserContext);
 
   async function handleVerify() {
 	const numeric = localCode.replace(/\D/g, '');
@@ -199,7 +203,14 @@ function VerificationForm({ phoneNumber, selectedChoice, propID, onComplete }) {
 		return;
 	  }
 
-	  // 2) if code is valid => create the "take"
+	  // 1.5) fetch /api/me to update context => user is logged in
+	  const meResp = await fetch('/api/me', { credentials: 'include' });
+	  const meData = await meResp.json();
+	  if (meData.loggedIn && meData.user) {
+		setLoggedInUser(meData.user);
+	  }
+
+	  // 2) create the "take"
 	  const takeBody = {
 		takeMobile: phoneNumber,
 		propID,
@@ -221,11 +232,8 @@ function VerificationForm({ phoneNumber, selectedChoice, propID, onComplete }) {
 		return;
 	  }
 
-	  // Grab the newTakeID
-	  const { newTakeID } = takeData;
-
 	  // 3) done => notify parent
-	  onComplete(newTakeID);
+	  onComplete(takeData.newTakeID);
 	} catch (err) {
 	  console.error('[VerificationForm] Error verifying code:', err);
 	  alert('Error verifying code. Please try again.');
@@ -268,6 +276,83 @@ function VerificationForm({ phoneNumber, selectedChoice, propID, onComplete }) {
   );
 }
 
+// --------------------------------------
+// MakeTakeButton (logged-in flow)
+// --------------------------------------
+function MakeTakeButton({ selectedChoice, propID, onTakeComplete, loggedInUser }) {
+  const [confirming, setConfirming] = useState(false);
+  const disabled = !selectedChoice;
+  const buttonText = confirming ? 'Tap to Confirm' : 'Make Take';
+
+  async function handleClick() {
+	if (!confirming) {
+	  setConfirming(true);
+	  return;
+	}
+
+	// Second click => /api/take with loggedInUser.phone
+	try {
+	  const body = {
+		takeMobile: loggedInUser.phone, // e.g. "+16023802793"
+		propID,
+		propSide: selectedChoice
+	  };
+
+	  const resp = await fetch('/api/take', {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		credentials: 'include',
+		body: JSON.stringify(body)
+	  });
+	  if (!resp.ok) {
+		alert('Failed to create take');
+		setConfirming(false);
+		return;
+	  }
+
+	  const data = await resp.json();
+	  if (!data.success) {
+		alert(data.error || 'Failed to create take');
+		setConfirming(false);
+		return;
+	  }
+
+	  onTakeComplete(data.newTakeID);
+	} catch (error) {
+	  console.error('[MakeTakeButton] Error:', error);
+	  alert('Error creating take. Please try again.');
+	  setConfirming(false);
+	}
+  }
+
+  return (
+	<div style={{ margin: '1rem 0' }}>
+	  <button
+		onClick={handleClick}
+		disabled={disabled}
+		style={{
+		  backgroundColor: disabled ? '#ccc' : '#3b82f6',
+		  color: 'white',
+		  padding: '0.5rem 1rem',
+		  borderRadius: '4px',
+		  cursor: disabled ? 'not-allowed' : 'pointer',
+		  marginRight: '1rem'
+		}}
+	  >
+		{buttonText}
+	  </button>
+	  {confirming && !disabled && (
+		<span style={{ color: 'blue' }}>
+		  Click again to confirm your take on side "{selectedChoice}"!
+		</span>
+	  )}
+	</div>
+  );
+}
+
+// --------------------------------------
+// CompleteStep
+// --------------------------------------
 function CompleteStep({ takeID }) {
   return (
 	<div style={{ marginTop: '1rem' }}>
@@ -284,23 +369,25 @@ function CompleteStep({ takeID }) {
   );
 }
 
-/**
- * The main VerificationWidget, now extracted:
- *  - Accepts an optional "embeddedPropID" prop.
- *  - If not provided, falls back to checking for ?propID= in the URL, or "defaultProp".
- */
+// --------------------------------------
+// MAIN VerificationWidget
+// --------------------------------------
 export default function VerificationWidget({ embeddedPropID }) {
-  const [currentStep, setCurrentStep] = React.useState('phone');
-  const [phoneNumber, setPhoneNumber] = React.useState('');
-  const [selectedChoice, setSelectedChoice] = React.useState('');
-  const [resultsRevealed, setResultsRevealed] = React.useState(false);
-  const [propData, setPropData] = React.useState(null);
-  const [loading, setLoading] = React.useState(true);
-  const [takeID, setTakeID] = React.useState(null);
+  const { loggedInUser } = useContext(UserContext);
+  const [currentStep, setCurrentStep] = useState('phone');
+  const [phoneNumber, setPhoneNumber] = useState('');
+  const [selectedChoice, setSelectedChoice] = useState('');
+  const [resultsRevealed, setResultsRevealed] = useState(false);
+  const [propData, setPropData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [takeID, setTakeID] = useState(null);
 
-  React.useEffect(() => {
-	// If an embedded propID is passed, use it;
-	// otherwise, check the URL query param.
+  // NEW: track userTakes + whether they've already taken this prop
+  const [userTakes, setUserTakes] = useState([]);
+  const [alreadyTookTakeID, setAlreadyTookTakeID] = useState(null);
+
+  // 1) Load the prop data
+  useEffect(() => {
 	let finalPropID = embeddedPropID;
 	if (!finalPropID) {
 	  const params = new URLSearchParams(window.location.search);
@@ -319,6 +406,31 @@ export default function VerificationWidget({ embeddedPropID }) {
 	  });
   }, [embeddedPropID]);
 
+  // 2) If user is logged in, fetch their profile/takes
+  useEffect(() => {
+	if (loggedInUser && loggedInUser.profileID) {
+	  fetch(`/api/profile/${loggedInUser.profileID}`)
+		.then((res) => res.json())
+		.then((data) => {
+		  if (data.success && data.userTakes) {
+			setUserTakes(data.userTakes);
+		  }
+		})
+		.catch((err) =>
+		  console.error('[VerificationWidget] /api/profile fetch error:', err)
+		);
+	}
+  }, [loggedInUser]);
+
+  // 3) Check if userTakes includes a take for this prop
+  useEffect(() => {
+	if (!propData || !propData.propID) return;
+	const existing = userTakes.find((t) => t.propID === propData.propID);
+	if (existing) {
+	  setAlreadyTookTakeID(existing.takeID);
+	}
+  }, [propData, userTakes]);
+
   if (loading) {
 	return <div style={{ padding: '2rem' }}>Loading proposition...</div>;
   }
@@ -331,13 +443,42 @@ export default function VerificationWidget({ embeddedPropID }) {
 	);
   }
 
+  // If prop is not open, just show a message
   const propStatus = propData.propStatus || 'open';
+  if (propStatus !== 'open') {
+	return (
+	  <div style={{ padding: '2rem', maxWidth: '600px', margin: '0 auto' }}>
+		<h2>Make The Take</h2>
+		<p>{propData.propShort}</p>
+		<p style={{ color: 'red', fontWeight: 'bold' }}>
+		  This prop is '{propStatus}'. You cannot vote anymore.
+		</p>
+		<p>Current A/B counts: {propData.propSideAPct}% vs. {propData.propSideBPct}%</p>
+	  </div>
+	);
+  }
+
+  // If the user is logged in and has already taken this prop
+  if (alreadyTookTakeID) {
+	return (
+	  <div style={{ padding: '2rem', maxWidth: '600px', margin: '0 auto' }}>
+		<h2>You’ve Already Made This Take</h2>
+		<p>
+		  <a href={`/takes/${alreadyTookTakeID}`} target="_blank" rel="noreferrer">
+			View your existing take here
+		  </a>
+		</p>
+		<p>Current side counts: A = {propData.propSideAPct}%, B = {propData.propSideBPct}%</p>
+	  </div>
+	);
+  }
+
+  // Otherwise, let the user pick a side, then either phone flow or direct MakeTake
   const forcedResults = propStatus !== 'open';
   const effectiveResultsRevealed = forcedResults || resultsRevealed;
 
   function handleSelectChoice(choiceValue) {
 	if (!forcedResults) {
-	  // Only allow changing the choice if prop is still open
 	  if (choiceValue === selectedChoice) {
 		setSelectedChoice('');
 		setResultsRevealed(false);
@@ -346,11 +487,6 @@ export default function VerificationWidget({ embeddedPropID }) {
 		setResultsRevealed(true);
 	  }
 	}
-  }
-
-  function handlePhoneSubmit(phone) {
-	setPhoneNumber(phone);
-	setCurrentStep('code');
   }
 
   function handleComplete(newTakeID) {
@@ -363,18 +499,6 @@ export default function VerificationWidget({ embeddedPropID }) {
 	  <h2>Make The Take</h2>
 	  <p>{propData.propShort}</p>
 
-	  {propStatus === 'closed' && (
-		<p style={{ color: 'blue', fontWeight: 'bold' }}>
-		  This prop is closed. You cannot vote anymore.
-		</p>
-	  )}
-	  {(propStatus === 'gradedA' || propStatus === 'gradedB') && (
-		<p style={{ color: 'green', fontWeight: 'bold' }}>
-		  This prop has been graded.&nbsp;
-		  {propStatus === 'gradedA' ? 'Side A is correct.' : 'Side B is correct.'}
-		</p>
-	  )}
-
 	  <PropChoices
 		selectedChoice={selectedChoice}
 		resultsRevealed={effectiveResultsRevealed}
@@ -386,25 +510,44 @@ export default function VerificationWidget({ embeddedPropID }) {
 		propStatus={propStatus}
 	  />
 
-	  {/* Only allow phone + code steps if the prop is "open" */}
-	  {propStatus === 'open' && currentStep === 'phone' && (
-		<PhoneNumberForm
-		  phoneNumber={phoneNumber}
-		  onSubmit={handlePhoneSubmit}
-		  selectedChoice={selectedChoice}
-		/>
-	  )}
-
-	  {propStatus === 'open' && currentStep === 'code' && (
-		<VerificationForm
-		  phoneNumber={phoneNumber}
-		  selectedChoice={selectedChoice}
-		  propID={propData.propID}
-		  onComplete={handleComplete}
-		/>
-	  )}
-
 	  {currentStep === 'complete' && <CompleteStep takeID={takeID} />}
+
+	  {currentStep !== 'complete' && (
+		<>
+		  {loggedInUser ? (
+			// Logged in => MakeTakeButton
+			<MakeTakeButton
+			  selectedChoice={selectedChoice}
+			  propID={propData.propID}
+			  onTakeComplete={handleComplete}
+			  loggedInUser={loggedInUser}
+			/>
+		  ) : (
+			// Not logged in => phone + code flow
+			<>
+			  {currentStep === 'phone' && (
+				<PhoneNumberForm
+				  phoneNumber={phoneNumber}
+				  onSubmit={(phone) => {
+					setPhoneNumber(phone);
+					setCurrentStep('code');
+				  }}
+				  selectedChoice={selectedChoice}
+				/>
+			  )}
+
+			  {currentStep === 'code' && (
+				<VerificationForm
+				  phoneNumber={phoneNumber}
+				  selectedChoice={selectedChoice}
+				  propID={propData.propID}
+				  onComplete={handleComplete}
+				/>
+			  )}
+			</>
+		  )}
+		</>
+	  )}
 	</div>
   );
 }

@@ -1,17 +1,21 @@
 // File: src/TakePage.js
 
-import React from 'react';
+import React, { useContext, useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import VerificationWidget from './VerificationWidget';
+import { UserContext } from './UserContext'; // <-- NEW: import context
 
 export default function TakePage() {
   const { takeID } = useParams();
+  const { loggedInUser } = useContext(UserContext); // <-- NEW: access logged-in user
+  
+  const [takeData, setTakeData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
-  const [takeData, setTakeData] = React.useState(null);
-  const [loading, setLoading] = React.useState(true);
-  const [error, setError] = React.useState('');
-
-  React.useEffect(() => {
+  useEffect(() => {
+	// Log whether the user is logged in
+	console.log('[TakePage] loggedInUser =>', loggedInUser);
 	console.log(`[TakePage] Fetching take data for takeID="${takeID}"...`);
 
 	// Call your backend endpoint: /api/takes/:takeID
@@ -33,7 +37,8 @@ export default function TakePage() {
 		setError('Could not fetch take data. Please try again later.');
 		setLoading(false);
 	  });
-  }, [takeID]);
+  }, [takeID, loggedInUser]); 
+  // ^ include loggedInUser in dependencies so it logs if user changes
 
   if (loading) {
 	return (

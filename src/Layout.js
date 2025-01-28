@@ -1,40 +1,82 @@
 // File: src/Layout.js
-import React from 'react';
+import React, { useContext, useEffect } from 'react';
 import { Link, Outlet } from 'react-router-dom';
+import { UserContext } from './UserContext';
 
 export default function Layout() {
+  const { loggedInUser, setLoggedInUser } = useContext(UserContext);
+
+  // Log the user context each time 'loggedInUser' changes:
+  useEffect(() => {
+	console.log('[Layout] loggedInUser =>', loggedInUser);
+  }, [loggedInUser]);
+
+  function handleLogout() {
+	fetch('/api/logout', {
+	  method: 'POST',
+	  credentials: 'include'
+	})
+	  .then((res) => res.json())
+	  .then((data) => {
+		if (data.success) {
+		  setLoggedInUser(null);
+		}
+	  })
+	  .catch((err) => console.error('[Layout] Logout error:', err));
+  }
+
   return (
 	<div className="min-h-screen flex flex-col">
-	  {/* Header */}
+	  {/* Header/Nav */}
 	  <header className="bg-gray-800 text-white">
 		<div className="container mx-auto px-4 py-4 flex items-center justify-between">
-		  {/* Left side: a brand or site title */}
+		  {/* Left: site title */}
 		  <Link to="/" className="text-xl font-bold hover:text-gray-200">
 			Make The Take
 		  </Link>
 
-		  {/* Right side: basic nav links */}
-		  <nav className="space-x-4">
-			<Link
-			  to="/leaderboard"
-			  className="hover:text-gray-300"
-			>
+		  {/* Right: nav links + login status */}
+		  <nav className="space-x-4 flex items-center">
+			<Link to="/leaderboard" className="hover:text-gray-300">
 			  Leaderboard
 			</Link>
-
-			{/* Example of a "Profile" link: 
-				You might pass a real profileID or route param if known */}
-			<Link
-			  to="/profile/demo123"
-			  className="hover:text-gray-300"
-			>
-			  Profile
+			<Link to="/test" className="hover:text-gray-300">
+			  Poll Demo
 			</Link>
+
+			{/* If user is logged in, link to their real profile; otherwise a fallback */}
+			{loggedInUser ? (
+			  <Link
+				to={`/profile/${loggedInUser.profileID}`}
+				className="hover:text-gray-300"
+			  >
+				My Profile
+			  </Link>
+			) : (
+			  <Link to="/profile/exampleProfileID" className="hover:text-gray-300">
+				Profile
+			  </Link>
+			)}
+
+			{/* If logged in, show phone & logout; otherwise show "Not logged in" */}
+			{loggedInUser ? (
+			  <div className="flex items-center space-x-2">
+				<span>Logged in as {loggedInUser.phone}</span>
+				<button
+				  onClick={handleLogout}
+				  className="bg-red-600 hover:bg-red-700 px-2 py-1 rounded"
+				>
+				  Logout
+				</button>
+			  </div>
+			) : (
+			  <span>Not logged in</span>
+			)}
 		  </nav>
 		</div>
 	  </header>
 
-	  {/* Main content area: an Outlet for child routes */}
+	  {/* Main content */}
 	  <main className="flex-grow container mx-auto px-4 py-6">
 		<Outlet />
 	  </main>
