@@ -1,4 +1,5 @@
 // File: src/HomePage.js
+
 import React from 'react';
 import { Link } from 'react-router-dom';
 
@@ -65,7 +66,12 @@ export default function HomePage() {
 				/>
 			  )}
 
-			  <h3 className="text-xl font-semibold">{p.propTitle}</h3>
+			  <h3 className="text-xl font-semibold">
+				{/* Wrap the title in a <Link> to the prop detail route */}
+				<Link to={`/props/${p.propID}`} className="text-blue-600 hover:underline">
+				  {p.propTitle}
+				</Link>
+			  </h3>
 			</div>
 
 			{/* Subject and Status on the same line */}

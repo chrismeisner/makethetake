@@ -1,4 +1,5 @@
 // File: src/Layout.js
+
 import React, { useContext, useEffect } from 'react';
 import { Link, Outlet } from 'react-router-dom';
 import { UserContext } from './UserContext';
@@ -44,31 +45,30 @@ export default function Layout() {
 			  Poll Demo
 			</Link>
 
-			{/* If user is logged in, link to their real profile; otherwise say "Not logged in" */}
 			{loggedInUser ? (
-			  <Link
-				to={`/profile/${loggedInUser.profileID}`}
-				className="hover:text-gray-300"
-			  >
-				My Profile
-			  </Link>
-			) : (
-			  <span>Not logged in</span>
-			)}
-
-			{/* If logged in, show phone & logout; otherwise show "Not logged in" again */}
-			{loggedInUser ? (
-			  <div className="flex items-center space-x-2">
-				<span>Logged in as {loggedInUser.phone}</span>
-				<button
-				  onClick={handleLogout}
-				  className="bg-red-600 hover:bg-red-700 px-2 py-1 rounded"
+			  <>
+				{/* If user is logged in => link to My Profile + show logout button */}
+				<Link
+				  to={`/profile/${loggedInUser.profileID}`}
+				  className="hover:text-gray-300"
 				>
-				  Logout
-				</button>
-			  </div>
+				  My Profile
+				</Link>
+				<div className="flex items-center space-x-2">
+				  <span>Logged in as {loggedInUser.phone}</span>
+				  <button
+					onClick={handleLogout}
+					className="bg-red-600 hover:bg-red-700 px-2 py-1 rounded"
+				  >
+					Logout
+				  </button>
+				</div>
+			  </>
 			) : (
-			  <span>Not logged in</span>
+			  // If user is NOT logged in => show one "Log in" link
+			  <Link to="/login" className="hover:text-gray-300">
+				Log in
+			  </Link>
 			)}
 		  </nav>
 		</div>
