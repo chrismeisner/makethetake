@@ -1,46 +1,57 @@
-// File: /Users/chrismeisner/Projects/make-the-take/src/ProfilePage.js
+// File: src/ProfilePage.js
 
-import React from 'react';
-import { useParams, Link } from 'react-router-dom';
+import React, { useState, useEffect, useContext } from 'react';
+import { useParams, Link, useNavigate } from 'react-router-dom';
+import { UserContext } from './UserContext';
 
 export default function ProfilePage() {
   const { profileID } = useParams();
+  const navigate = useNavigate();
+  const { loggedInUser, setLoggedInUser } = useContext(UserContext);
 
-  const [profile, setProfile] = React.useState(null);
-  const [totalTakes, setTotalTakes] = React.useState(0);
-  const [userTakes, setUserTakes] = React.useState([]); // <-- Stores User's Takes
-  const [error, setError] = React.useState('');
+  const [profile, setProfile] = useState(null);
+  const [totalTakes, setTotalTakes] = useState(0);
+  const [userTakes, setUserTakes] = useState([]);
+  const [error, setError] = useState('');
 
-  React.useEffect(() => {
-	console.log(`[ProfilePage] Fetching profile data for profileID="${profileID}"...`);
-
+  useEffect(() => {
+	console.log(`[ProfilePage] Fetching profile for ID="${profileID}"...`);
 	fetch(`/api/profile/${encodeURIComponent(profileID)}`)
 	  .then((res) => res.json())
 	  .then((data) => {
-		console.log(`[ProfilePage] API response for profileID="${profileID}":`, data);
-
 		if (!data.success) {
 		  setError(data.error || 'Unknown error loading profile');
 		  return;
 		}
-
-		// Logging profile and takes data
-		console.log('[ProfilePage] Profile loaded:', data.profile);
-		console.log('[ProfilePage] Total Takes:', data.totalTakes);
-		console.log('[ProfilePage] User Takes:', data.userTakes);
-
-		setProfile(data.profile);       // Store profile details
-		setTotalTakes(data.totalTakes); // Store the total takes count
-		setUserTakes(data.userTakes || []); // Store User's Takes
-		
-		// Add a direct console log to confirm userTakes is being set:
-		console.log(`[ProfilePage] userTakes array just set for profileID="${profileID}":`, data.userTakes);
+		setProfile(data.profile);
+		setTotalTakes(data.totalTakes);
+		setUserTakes(data.userTakes || []);
 	  })
 	  .catch((err) => {
-		console.error('[ProfilePage] Fetch error:', err);
-		setError('Could not fetch profile. Please try again later.');
+		console.error('[ProfilePage] Error:', err);
+		setError('Could not fetch profile');
 	  });
   }, [profileID]);
+
+  function handleLogout() {
+	fetch('/api/logout', {
+	  method: 'POST',
+	  credentials: 'include'
+	})
+	  .then((res) => res.json())
+	  .then((data) => {
+		if (data.success) {
+		  setLoggedInUser(null);
+		  navigate('/'); // or navigate('/login') if you prefer
+		} else {
+		  setError('Logout failed. Please try again.');
+		}
+	  })
+	  .catch((err) => {
+		console.error('[ProfilePage] Logout error:', err);
+		setError('Logout error. Please try again.');
+	  });
+  }
 
   if (error) {
 	return (
@@ -52,18 +63,14 @@ export default function ProfilePage() {
   }
 
   if (!profile) {
-	return (
-	  <div className="p-4">
-		<h2 className="text-xl font-semibold">Loading profile...</h2>
-	  </div>
-	);
+	return <div className="p-4">Loading profile...</div>;
   }
 
   return (
 	<div className="p-4">
 	  <h2 className="text-2xl font-bold mb-4">User Profile</h2>
 
-	  <div className="space-y-2">
+	  <div className="space-y-2 mb-6">
 		<p>
 		  <span className="font-semibold">Profile ID:</span> {profile.profileID}
 		</p>
@@ -82,6 +89,16 @@ export default function ProfilePage() {
 		</p>
 	  </div>
 
+	  {/* Logout button here (only if user is indeed the owner, or just always) */}
+	  {loggedInUser?.profileID === profileID && (
+		<button
+		  onClick={handleLogout}
+		  className="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700"
+		>
+		  Logout
+		</button>
+	  )}
+
 	  {/* Display the user's Takes */}
 	  <div className="mt-6">
 		<h3 className="text-xl font-semibold">User's Takes</h3>
@@ -89,44 +106,32 @@ export default function ProfilePage() {
 		  <p className="text-gray-600">No Takes yet.</p>
 		) : (
 		  <div className="mt-2 space-y-4">
-			{userTakes.map((take) => {
-			  // Log each take object for debugging
-			  console.log('[ProfilePage] Rendering Take =>', take);
-
-			  // If the "takeID" field is missing or empty, log a warning
-			  if (!take.takeID) {
-				console.warn('[ProfilePage] Missing takeID for the following take:', take);
-			  }
-
-			  return (
-				<div key={take.airtableRecordId} className="border p-2 rounded">
-				  <p>
-					<strong>Take Record:</strong>{' '}
-					{take.takeID ? (
-					  // If we have a takeID, make it a link
-					  <Link to={`/takes/${take.takeID}`}>
-						{take.airtableRecordId}
-					  </Link>
-					) : (
-					  // Otherwise just display the record ID as text
-					  <span>{take.airtableRecordId}</span>
-					)}
-				  </p>
-				  <p>
-					<strong>Prop ID:</strong> {take.propID}
-				  </p>
-				  <p>
-					<strong>Prop Side:</strong> {take.propSide}
-				  </p>
-				  <p>
-					<strong>Popularity:</strong> {take.takePopularity}%
-				  </p>
-				  <p>
-					<strong>Created Time:</strong> {take.createdTime}
-				  </p>
-				</div>
-			  );
-			})}
+			{userTakes.map((take) => (
+			  <div key={take.airtableRecordId} className="border p-2 rounded">
+				<p>
+				  <strong>Take Record:</strong>{' '}
+				  {take.takeID ? (
+					<Link to={`/takes/${take.takeID}`}>
+					  {take.airtableRecordId}
+					</Link>
+				  ) : (
+					<span>{take.airtableRecordId}</span>
+				  )}
+				</p>
+				<p>
+				  <strong>Prop ID:</strong> {take.propID}
+				</p>
+				<p>
+				  <strong>Prop Side:</strong> {take.propSide}
+				</p>
+				<p>
+				  <strong>Popularity:</strong> {take.takePopularity}%
+				</p>
+				<p>
+				  <strong>Created Time:</strong> {take.createdTime}
+				</p>
+			  </div>
+			))}
 		  </div>
 		)}
 	  </div>

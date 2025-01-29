@@ -12,20 +12,6 @@ export default function Layout() {
 	console.log('[Layout] loggedInUser =>', loggedInUser);
   }, [loggedInUser]);
 
-  function handleLogout() {
-	fetch('/api/logout', {
-	  method: 'POST',
-	  credentials: 'include'
-	})
-	  .then((res) => res.json())
-	  .then((data) => {
-		if (data.success) {
-		  setLoggedInUser(null);
-		}
-	  })
-	  .catch((err) => console.error('[Layout] Logout error:', err));
-  }
-
   return (
 	<div className="min-h-screen flex flex-col">
 	  {/* Header/Nav */}
@@ -41,31 +27,18 @@ export default function Layout() {
 			<Link to="/leaderboard" className="hover:text-gray-300">
 			  Leaderboard
 			</Link>
-			<Link to="/test" className="hover:text-gray-300">
-			  Poll Demo
-			</Link>
+			{/* Poll Demo link removed, but route still exists if needed */}
 
 			{loggedInUser ? (
-			  <>
-				{/* If user is logged in => link to My Profile + show logout button */}
-				<Link
-				  to={`/profile/${loggedInUser.profileID}`}
-				  className="hover:text-gray-300"
-				>
-				  My Profile
-				</Link>
-				<div className="flex items-center space-x-2">
-				  <span>Logged in as {loggedInUser.phone}</span>
-				  <button
-					onClick={handleLogout}
-					className="bg-red-600 hover:bg-red-700 px-2 py-1 rounded"
-				  >
-					Logout
-				  </button>
-				</div>
-			  </>
+			  // If user IS logged in => link to their profile using phone number
+			  <Link
+				to={`/profile/${loggedInUser.profileID}`}
+				className="hover:text-gray-300"
+			  >
+				{loggedInUser.phone}
+			  </Link>
 			) : (
-			  // If user is NOT logged in => show one "Log in" link
+			  // If user is NOT logged in => show "Log in"
 			  <Link to="/login" className="hover:text-gray-300">
 				Log in
 			  </Link>
