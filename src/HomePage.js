@@ -13,11 +13,15 @@ export default function HomePage() {
 	  .then((data) => {
 		if (!data.success) {
 		  setError(data.error || 'Unknown error fetching props');
+		  setLoading(false);
 		} else {
-		  console.log('[HomePage] /api/props =>', data.props);
-		  setPropsList(data.props || []);
+		  // Filter out any props with status = "archived"
+		  const filteredProps = (data.props || []).filter(
+			(p) => p.propStatus !== 'archived'
+		  );
+		  setPropsList(filteredProps);
+		  setLoading(false);
 		}
-		setLoading(false);
 	  })
 	  .catch((err) => {
 		console.error('[HomePage] error fetching props:', err);
@@ -29,11 +33,13 @@ export default function HomePage() {
   if (loading) {
 	return <div className="p-4">Loading props...</div>;
   }
+
   if (error) {
 	return <div className="p-4 text-red-600">Error: {error}</div>;
   }
+
   if (propsList.length === 0) {
-	return <div className="p-4">No props found.</div>;
+	return <div className="p-4">No props found (none are open or non-archived).</div>;
   }
 
   return (
@@ -43,7 +49,7 @@ export default function HomePage() {
 	  <div className="space-y-6">
 		{propsList.map((p) => (
 		  <div key={p.propID} className="border p-4 rounded">
-			{/* Top row: possible subject logo, then title */}
+			{/* Top row: optional subject logo, then prop title */}
 			<div style={{ display: 'flex', alignItems: 'center' }}>
 			  {p.subjectLogoUrl && (
 				<img
@@ -54,32 +60,54 @@ export default function HomePage() {
 					height: '40px',
 					objectFit: 'cover',
 					borderRadius: '4px',
-					marginRight: '0.5rem'
+					marginRight: '0.5rem',
 				  }}
 				/>
 			  )}
 
-			  <h3 className="text-xl font-semibold">
-				<Link to={`/props/${p.propID}`} className="text-blue-600 hover:underline">
-				  {p.propTitle}
-				</Link>
-			  </h3>
+			  <h3 className="text-xl font-semibold">{p.propTitle}</h3>
 			</div>
 
-			{p.subjectTitle && (
-			  <p className="mt-1 text-sm text-gray-600">Subject: {p.subjectTitle}</p>
+			{/* Subject and Status on the same line */}
+			{(p.subjectTitle || p.propStatus) && (
+			  <p className="mt-1 text-sm text-gray-600">
+				{p.subjectTitle && (
+				  <>Subject: {p.subjectTitle}</>
+				)}
+				{p.subjectTitle && p.propStatus && (
+				  <span className="ml-4">Status: {p.propStatus}</span>
+				)}
+				{!p.subjectTitle && p.propStatus && (
+				  <>Status: {p.propStatus}</>
+				)}
+			  </p>
 			)}
 
-			<p style={{ marginTop: '0.5rem', color: '#666' }}>Created: {p.createdAt}</p>
+			<p style={{ marginTop: '0.5rem', color: '#666' }}>
+			  Created: {p.createdAt}
+			</p>
+
 			<p className="mt-2">{p.propSummary}</p>
+
+			{/* "Make The Take:" line and link (same style as "Related Links:") */}
+			<p className="mt-2 text-sm font-semibold">Make The Take:</p>
+			<p>
+			  <Link
+				to={`/props/${p.propID}`}
+				className="text-blue-600 hover:underline"
+			  >
+				{p.propLong}
+			  </Link>
+			</p>
 
 			{/* Show the content array if we have any */}
 			{p.content && p.content.length > 0 && (
 			  <div style={{ marginTop: '1rem' }}>
-				<strong>Related Links:</strong>
-				<ul style={{ marginLeft: '1.25rem', listStyle: 'disc' }}>
+				<p className="text-sm font-semibold">Related Links:</p>
+				<ul style={{ margin: 0, padding: 0, listStyle: 'none' }}>
 				  {p.content.map((cItem, idx) => (
 					<li key={idx} style={{ margin: '0.25rem 0' }}>
+					  <span style={{ marginRight: '4px' }}>↗</span>
 					  <a
 						href={cItem.contentURL}
 						target="_blank"
@@ -93,14 +121,6 @@ export default function HomePage() {
 				</ul>
 			  </div>
 			)}
-
-			<p className="mt-2 text-gray-600">Status: {p.propStatus}</p>
-
-			<p className="mt-2">
-			  <Link to={`/props/${p.propID}`} className="text-blue-600 hover:underline">
-				{p.propLong}
-			  </Link>
-			</p>
 		  </div>
 		))}
 	  </div>

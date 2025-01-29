@@ -1,28 +1,46 @@
 // File: src/VerificationWidget.js
-
 import React, { useContext, useState, useEffect } from 'react';
 import InputMask from 'react-input-mask';
 import { UserContext } from './UserContext';
 
 // --------------------------------------
-// Choice & PropChoices (unchanged)
+// Choice & PropChoices
 // --------------------------------------
 function Choice({
   label,
   percentage,
   sideValue,
   isSelected,
+  anySideSelected,
   showResults,
   onSelect,
   propStatus
 }) {
   const [isHovered, setIsHovered] = useState(false);
 
-  const fillWidth = showResults ? `${percentage}%` : '0%';
-  const baseBackground = '#f3f3f3';
-  const hoverBackground = '#e0e0e0';
-  const backgroundColor = isHovered ? hoverBackground : baseBackground;
+  // If no side has been chosen at all, bars are light gray (#f9f9f9)
+  // Once ANY side is selected, all bars become white (#ffffff),
+  // but the selected bar gets a blue outline.
+  let backgroundColor;
+  if (!anySideSelected) {
+	backgroundColor = '#f9f9f9'; // light gray
+  } else {
+	backgroundColor = '#ffffff'; // white
+  }
 
+  // Outline if this is the selected bar
+  const outlineStyle = isSelected ? '2px solid #3b82f6' : 'none';
+
+  // Base & hover borders
+  const baseBorder = '1px solid #ddd';
+  const hoverBorder = '1px solid #aaa';
+
+  // Fill overlay for "results"
+  const fillOpacity = showResults ? (isSelected ? 1 : 0.4) : 0;
+  const fillColor = `rgba(219, 234, 254, ${fillOpacity})`; // pale blue overlay
+  const fillWidth = showResults ? `${percentage}%` : '0%';
+
+  // Optional correctness icon if prop is "graded"
   let correctnessIcon = null;
   if (propStatus === 'gradedA') {
 	correctnessIcon = sideValue === 'A' ? '✅' : '❌';
@@ -31,8 +49,6 @@ function Choice({
   }
 
   const clickable = propStatus === 'open';
-  const fillOpacity = showResults ? (isSelected ? 1 : 0.4) : 0;
-  const fillColor = `rgba(219, 234, 254, ${fillOpacity})`;
 
   return (
 	<div
@@ -41,18 +57,20 @@ function Choice({
 	  onMouseLeave={() => clickable && setIsHovered(false)}
 	  style={{
 		position: 'relative',
-		border: '1px solid #ddd',
 		marginBottom: '0.5rem',
 		padding: '1rem',
 		cursor: clickable ? 'pointer' : 'default',
-		outline: isSelected ? '2px solid #3b82f6' : 'none',
-		overflow: 'hidden',
 		backgroundColor,
-		transition: 'background-color 0.2s ease',
+		// Hover only changes the border color if clickable
+		border: isHovered && clickable ? hoverBorder : baseBorder,
+		outline: outlineStyle,
+		overflow: 'hidden',
 		textAlign: 'left',
-		opacity: clickable ? 1 : 0.8
+		opacity: clickable ? 1 : 0.8,
+		transition: 'border-color 0.2s ease'
 	  }}
 	>
+	  {/* Results overlay */}
 	  <div
 		style={{
 		  position: 'absolute',
@@ -92,6 +110,8 @@ function PropChoices({
   sideBLabel,
   propStatus
 }) {
+  const anySideSelected = selectedChoice !== ''; // if user has picked A or B
+
   const choices = [
 	{ value: 'A', label: sideALabel, percentage: propSideAPct },
 	{ value: 'B', label: sideBLabel, percentage: propSideBPct }
@@ -108,6 +128,7 @@ function PropChoices({
 			percentage={choice.percentage}
 			sideValue={choice.value}
 			isSelected={isSelected}
+			anySideSelected={anySideSelected}
 			showResults={resultsRevealed}
 			onSelect={() => onSelectChoice(choice.value)}
 			propStatus={propStatus}
@@ -161,20 +182,28 @@ function PhoneNumberForm({ phoneNumber, onSubmit, selectedChoice }) {
 			<input
 			  type="tel"
 			  placeholder="(602) 380-2794"
-			  style={{ flex: 1 }}
+			  style={{
+				flex: 1,
+				backgroundColor: '#f5f5f5' // light gray background
+			  }}
 			/>
 		  )}
 		</InputMask>
-		<button onClick={handleSend} disabled={isDisabled}>
+
+		<button
+		  onClick={handleSend}
+		  disabled={isDisabled}
+		  className={
+			isDisabled
+			  ? 'bg-blue-500 text-white px-4 py-2 rounded opacity-50 cursor-not-allowed'
+			  : 'bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700'
+		  }
+		>
 		  Send Verification Code
 		</button>
 	  </div>
-	  {!hasSide && (
-		<div style={{ color: 'red' }}>Please select a side above.</div>
-	  )}
-	  {!isPhoneValid && (
-		<div style={{ color: 'red' }}>Enter a 10-digit phone number.</div>
-	  )}
+	  {!hasSide && <div style={{ color: 'red' }}>Please select a side above.</div>}
+	  {!isPhoneValid && <div style={{ color: 'red' }}>Enter a 10-digit phone number.</div>}
 	</div>
   );
 }
@@ -242,7 +271,7 @@ function VerificationForm({ phoneNumber, selectedChoice, propID, onComplete }) {
 
   function handleResend() {
 	console.log(`Resending code to "${phoneNumber}"...`);
-	// Optional: call /api/sendCode again with phoneNumber
+	// Optionally re-call /api/sendCode
   }
 
   return (
@@ -263,15 +292,25 @@ function VerificationForm({ phoneNumber, selectedChoice, propID, onComplete }) {
 		)}
 	  </InputMask>
 
-	  <button onClick={handleVerify}>Verify</button>
+	  <div style={{ display: 'flex', gap: '0.5rem' }}>
+		<button
+		  onClick={handleVerify}
+		  className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+		>
+		  Verify
+		</button>
 
-	  <p>
+		<button
+		  onClick={handleResend}
+		  className="bg-gray-200 px-3 py-2 rounded hover:bg-gray-300"
+		>
+		  Resend It
+		</button>
+	  </div>
+
+	  <p style={{ marginTop: '0.5rem' }}>
 		Verification code sent to <strong>{phoneNumber}</strong>
 	  </p>
-
-	  <button onClick={handleResend} style={{ marginTop: '0.5rem' }}>
-		Resend it
-	  </button>
 	</div>
   );
 }
@@ -289,11 +328,10 @@ function MakeTakeButton({ selectedChoice, propID, onTakeComplete, loggedInUser }
 	  setConfirming(true);
 	  return;
 	}
-
 	// Second click => /api/take with loggedInUser.phone
 	try {
 	  const body = {
-		takeMobile: loggedInUser.phone, // e.g. "+16023802793"
+		takeMobile: loggedInUser.phone,
 		propID,
 		propSide: selectedChoice
 	  };
@@ -330,19 +368,16 @@ function MakeTakeButton({ selectedChoice, propID, onTakeComplete, loggedInUser }
 	  <button
 		onClick={handleClick}
 		disabled={disabled}
-		style={{
-		  backgroundColor: disabled ? '#ccc' : '#3b82f6',
-		  color: 'white',
-		  padding: '0.5rem 1rem',
-		  borderRadius: '4px',
-		  cursor: disabled ? 'not-allowed' : 'pointer',
-		  marginRight: '1rem'
-		}}
+		className={
+		  disabled
+			? 'bg-blue-500 text-white px-4 py-2 rounded opacity-50 cursor-not-allowed'
+			: 'bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700'
+		}
 	  >
 		{buttonText}
 	  </button>
 	  {confirming && !disabled && (
-		<span style={{ color: 'blue' }}>
+		<span style={{ color: 'blue', marginLeft: '0.5rem' }}>
 		  Click again to confirm your take on side "{selectedChoice}"!
 		</span>
 	  )}
@@ -374,6 +409,8 @@ function CompleteStep({ takeID }) {
 // --------------------------------------
 export default function VerificationWidget({ embeddedPropID }) {
   const { loggedInUser } = useContext(UserContext);
+
+  // Steps: 'phone' -> 'code' -> 'complete'
   const [currentStep, setCurrentStep] = useState('phone');
   const [phoneNumber, setPhoneNumber] = useState('');
   const [selectedChoice, setSelectedChoice] = useState('');
@@ -382,11 +419,10 @@ export default function VerificationWidget({ embeddedPropID }) {
   const [loading, setLoading] = useState(true);
   const [takeID, setTakeID] = useState(null);
 
-  // NEW: track userTakes + whether they've already taken this prop
   const [userTakes, setUserTakes] = useState([]);
   const [alreadyTookTakeID, setAlreadyTookTakeID] = useState(null);
 
-  // 1) Load the prop data
+  // 1) Load the prop
   useEffect(() => {
 	let finalPropID = embeddedPropID;
 	if (!finalPropID) {
@@ -437,43 +473,47 @@ export default function VerificationWidget({ embeddedPropID }) {
 
   if (!propData || propData.error) {
 	return (
-	  <div style={{ padding: '2rem' }}>
+	  <div style={{ padding: '2rem', color: 'red' }}>
 		{propData?.error || 'Error loading proposition'}
 	  </div>
 	);
   }
 
-  // If prop is not open, just show a message
+  // If prop is not open => can't vote
   const propStatus = propData.propStatus || 'open';
   if (propStatus !== 'open') {
 	return (
 	  <div style={{ padding: '2rem', maxWidth: '600px', margin: '0 auto' }}>
-		<h2>Make The Take</h2>
-		<p>{propData.propShort}</p>
+		<h2 className="text-xl font-bold mb-2">{propData.propShort}</h2>
 		<p style={{ color: 'red', fontWeight: 'bold' }}>
 		  This prop is '{propStatus}'. You cannot vote anymore.
 		</p>
-		<p>Current A/B counts: {propData.propSideAPct}% vs. {propData.propSideBPct}%</p>
+		<p>
+		  Current side counts: A = {propData.propSideAPct}%, B = {propData.propSideBPct}%
+		</p>
 	  </div>
 	);
   }
 
-  // If the user is logged in and has already taken this prop
+  // If user already took it => show message
   if (alreadyTookTakeID) {
 	return (
 	  <div style={{ padding: '2rem', maxWidth: '600px', margin: '0 auto' }}>
-		<h2>You’ve Already Made This Take</h2>
+		<h2 className="text-xl font-bold mb-2">{propData.propShort}</h2>
+		<p>You’ve Already Made This Take.</p>
 		<p>
 		  <a href={`/takes/${alreadyTookTakeID}`} target="_blank" rel="noreferrer">
 			View your existing take here
 		  </a>
 		</p>
-		<p>Current side counts: A = {propData.propSideAPct}%, B = {propData.propSideBPct}%</p>
+		<p>
+		  Current side counts: A = {propData.propSideAPct}%, B = {propData.propSideBPct}%
+		</p>
 	  </div>
 	);
   }
 
-  // Otherwise, let the user pick a side, then either phone flow or direct MakeTake
+  // Otherwise, let them pick a side & vote
   const forcedResults = propStatus !== 'open';
   const effectiveResultsRevealed = forcedResults || resultsRevealed;
 
@@ -494,10 +534,18 @@ export default function VerificationWidget({ embeddedPropID }) {
 	setCurrentStep('complete');
   }
 
+  if (currentStep === 'complete') {
+	return (
+	  <div style={{ padding: '2rem', maxWidth: '600px', margin: '0 auto' }}>
+		<h2 className="text-xl font-bold mb-2">{propData.propShort}</h2>
+		<CompleteStep takeID={takeID} />
+	  </div>
+	);
+  }
+
   return (
 	<div style={{ padding: '2rem', maxWidth: '600px', margin: '0 auto' }}>
-	  <h2>Make The Take</h2>
-	  <p>{propData.propShort}</p>
+	  <h2 className="text-xl font-bold mb-2">{propData.propShort}</h2>
 
 	  <PropChoices
 		selectedChoice={selectedChoice}
@@ -510,41 +558,32 @@ export default function VerificationWidget({ embeddedPropID }) {
 		propStatus={propStatus}
 	  />
 
-	  {currentStep === 'complete' && <CompleteStep takeID={takeID} />}
-
-	  {currentStep !== 'complete' && (
+	  {loggedInUser ? (
+		<MakeTakeButton
+		  selectedChoice={selectedChoice}
+		  propID={propData.propID}
+		  onTakeComplete={handleComplete}
+		  loggedInUser={loggedInUser}
+		/>
+	  ) : (
 		<>
-		  {loggedInUser ? (
-			// Logged in => MakeTakeButton
-			<MakeTakeButton
+		  {currentStep === 'phone' && (
+			<PhoneNumberForm
+			  phoneNumber={phoneNumber}
+			  onSubmit={(phone) => {
+				setPhoneNumber(phone);
+				setCurrentStep('code');
+			  }}
+			  selectedChoice={selectedChoice}
+			/>
+		  )}
+		  {currentStep === 'code' && (
+			<VerificationForm
+			  phoneNumber={phoneNumber}
 			  selectedChoice={selectedChoice}
 			  propID={propData.propID}
-			  onTakeComplete={handleComplete}
-			  loggedInUser={loggedInUser}
+			  onComplete={handleComplete}
 			/>
-		  ) : (
-			// Not logged in => phone + code flow
-			<>
-			  {currentStep === 'phone' && (
-				<PhoneNumberForm
-				  phoneNumber={phoneNumber}
-				  onSubmit={(phone) => {
-					setPhoneNumber(phone);
-					setCurrentStep('code');
-				  }}
-				  selectedChoice={selectedChoice}
-				/>
-			  )}
-
-			  {currentStep === 'code' && (
-				<VerificationForm
-				  phoneNumber={phoneNumber}
-				  selectedChoice={selectedChoice}
-				  propID={propData.propID}
-				  onComplete={handleComplete}
-				/>
-			  )}
-			</>
 		  )}
 		</>
 	  )}
