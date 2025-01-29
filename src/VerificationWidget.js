@@ -18,29 +18,16 @@ function Choice({
 }) {
   const [isHovered, setIsHovered] = useState(false);
 
-  // If no side has been chosen at all, bars are light gray (#f9f9f9)
-  // Once ANY side is selected, all bars become white (#ffffff),
-  // but the selected bar gets a blue outline.
-  let backgroundColor;
-  if (!anySideSelected) {
-	backgroundColor = '#f9f9f9'; // light gray
-  } else {
-	backgroundColor = '#ffffff'; // white
-  }
-
-  // Outline if this is the selected bar
+  let backgroundColor = !anySideSelected ? '#f9f9f9' : '#ffffff'; // no side => gray, else => white
   const outlineStyle = isSelected ? '2px solid #3b82f6' : 'none';
 
-  // Base & hover borders
   const baseBorder = '1px solid #ddd';
   const hoverBorder = '1px solid #aaa';
 
-  // Fill overlay for "results"
   const fillOpacity = showResults ? (isSelected ? 1 : 0.4) : 0;
-  const fillColor = `rgba(219, 234, 254, ${fillOpacity})`; // pale blue overlay
+  const fillColor = `rgba(219, 234, 254, ${fillOpacity})`;
   const fillWidth = showResults ? `${percentage}%` : '0%';
 
-  // Optional correctness icon if prop is "graded"
   let correctnessIcon = null;
   if (propStatus === 'gradedA') {
 	correctnessIcon = sideValue === 'A' ? '✅' : '❌';
@@ -61,7 +48,6 @@ function Choice({
 		padding: '1rem',
 		cursor: clickable ? 'pointer' : 'default',
 		backgroundColor,
-		// Hover only changes the border color if clickable
 		border: isHovered && clickable ? hoverBorder : baseBorder,
 		outline: outlineStyle,
 		overflow: 'hidden',
@@ -70,7 +56,6 @@ function Choice({
 		transition: 'border-color 0.2s ease'
 	  }}
 	>
-	  {/* Results overlay */}
 	  <div
 		style={{
 		  position: 'absolute',
@@ -110,7 +95,7 @@ function PropChoices({
   sideBLabel,
   propStatus
 }) {
-  const anySideSelected = selectedChoice !== ''; // if user has picked A or B
+  const anySideSelected = selectedChoice !== '';
 
   const choices = [
 	{ value: 'A', label: sideALabel, percentage: propSideAPct },
@@ -144,6 +129,7 @@ function PropChoices({
 // --------------------------------------
 function PhoneNumberForm({ phoneNumber, onSubmit, selectedChoice }) {
   const [localPhone, setLocalPhone] = useState(phoneNumber);
+
   const numericPhone = localPhone.replace(/\D/g, '');
   const isPhoneValid = numericPhone.length === 10;
   const hasSide = selectedChoice !== '';
@@ -157,13 +143,12 @@ function PhoneNumberForm({ phoneNumber, onSubmit, selectedChoice }) {
 		body: JSON.stringify({ phone: localPhone })
 	  });
 	  if (!resp.ok) {
-		alert('Failed to send verification code');
+		console.error('Failed to send verification code');
 		return;
 	  }
 	  onSubmit(localPhone);
 	} catch (err) {
 	  console.error('[PhoneNumberForm] Error sending code:', err);
-	  alert('Error sending code. Please try again.');
 	}
   }
 
@@ -184,7 +169,7 @@ function PhoneNumberForm({ phoneNumber, onSubmit, selectedChoice }) {
 			  placeholder="(602) 380-2794"
 			  style={{
 				flex: 1,
-				backgroundColor: '#f5f5f5' // light gray background
+				backgroundColor: '#f5f5f5'
 			  }}
 			/>
 		  )}
@@ -202,8 +187,6 @@ function PhoneNumberForm({ phoneNumber, onSubmit, selectedChoice }) {
 		  Send Verification Code
 		</button>
 	  </div>
-	  {!hasSide && <div style={{ color: 'red' }}>Please select a side above.</div>}
-	  {!isPhoneValid && <div style={{ color: 'red' }}>Enter a 10-digit phone number.</div>}
 	</div>
   );
 }
@@ -215,12 +198,12 @@ function VerificationForm({ phoneNumber, selectedChoice, propID, onComplete }) {
   async function handleVerify() {
 	const numeric = localCode.replace(/\D/g, '');
 	if (numeric.length !== 6) {
-	  alert('Please enter a valid 6-digit code.');
+	  console.log('Invalid code length');
 	  return;
 	}
 
 	try {
-	  // 1) verify the code
+	  // Verify code
 	  const verifyResp = await fetch('/api/verifyCode', {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
@@ -228,18 +211,18 @@ function VerificationForm({ phoneNumber, selectedChoice, propID, onComplete }) {
 	  });
 	  const verifyData = await verifyResp.json();
 	  if (!verifyData.success) {
-		alert(verifyData.error || 'Invalid code');
+		console.error('Code verification failed');
 		return;
 	  }
 
-	  // 1.5) fetch /api/me to update context => user is logged in
+	  // If success, fetch /api/me
 	  const meResp = await fetch('/api/me', { credentials: 'include' });
 	  const meData = await meResp.json();
 	  if (meData.loggedIn && meData.user) {
 		setLoggedInUser(meData.user);
 	  }
 
-	  // 2) create the "take"
+	  // Create the "take"
 	  const takeBody = {
 		takeMobile: phoneNumber,
 		propID,
@@ -251,27 +234,24 @@ function VerificationForm({ phoneNumber, selectedChoice, propID, onComplete }) {
 		body: JSON.stringify(takeBody)
 	  });
 	  if (!takeResp.ok) {
-		alert('Failed to log the take');
+		console.error('Failed to log the take');
 		return;
 	  }
 
 	  const takeData = await takeResp.json();
 	  if (!takeData.success) {
-		alert('Failed to create the take');
+		console.error('Failed to create the take');
 		return;
 	  }
 
-	  // 3) done => notify parent
 	  onComplete(takeData.newTakeID);
 	} catch (err) {
 	  console.error('[VerificationForm] Error verifying code:', err);
-	  alert('Error verifying code. Please try again.');
 	}
   }
 
   function handleResend() {
-	console.log(`Resending code to "${phoneNumber}"...`);
-	// Optionally re-call /api/sendCode
+	console.log(`[VerificationForm] Resending code to "${phoneNumber}"...`);
   }
 
   return (
@@ -307,10 +287,6 @@ function VerificationForm({ phoneNumber, selectedChoice, propID, onComplete }) {
 		  Resend It
 		</button>
 	  </div>
-
-	  <p style={{ marginTop: '0.5rem' }}>
-		Verification code sent to <strong>{phoneNumber}</strong>
-	  </p>
 	</div>
   );
 }
@@ -328,7 +304,6 @@ function MakeTakeButton({ selectedChoice, propID, onTakeComplete, loggedInUser }
 	  setConfirming(true);
 	  return;
 	}
-	// Second click => /api/take with loggedInUser.phone
 	try {
 	  const body = {
 		takeMobile: loggedInUser.phone,
@@ -343,14 +318,14 @@ function MakeTakeButton({ selectedChoice, propID, onTakeComplete, loggedInUser }
 		body: JSON.stringify(body)
 	  });
 	  if (!resp.ok) {
-		alert('Failed to create take');
+		console.error('Failed to create take');
 		setConfirming(false);
 		return;
 	  }
 
 	  const data = await resp.json();
 	  if (!data.success) {
-		alert(data.error || 'Failed to create take');
+		console.error('Backend error creating take');
 		setConfirming(false);
 		return;
 	  }
@@ -358,7 +333,6 @@ function MakeTakeButton({ selectedChoice, propID, onTakeComplete, loggedInUser }
 	  onTakeComplete(data.newTakeID);
 	} catch (error) {
 	  console.error('[MakeTakeButton] Error:', error);
-	  alert('Error creating take. Please try again.');
 	  setConfirming(false);
 	}
   }
@@ -410,7 +384,6 @@ function CompleteStep({ takeID }) {
 export default function VerificationWidget({ embeddedPropID }) {
   const { loggedInUser } = useContext(UserContext);
 
-  // Steps: 'phone' -> 'code' -> 'complete'
   const [currentStep, setCurrentStep] = useState('phone');
   const [phoneNumber, setPhoneNumber] = useState('');
   const [selectedChoice, setSelectedChoice] = useState('');
@@ -422,7 +395,6 @@ export default function VerificationWidget({ embeddedPropID }) {
   const [userTakes, setUserTakes] = useState([]);
   const [alreadyTookTakeID, setAlreadyTookTakeID] = useState(null);
 
-  // 1) Load the prop
   useEffect(() => {
 	let finalPropID = embeddedPropID;
 	if (!finalPropID) {
@@ -442,7 +414,6 @@ export default function VerificationWidget({ embeddedPropID }) {
 	  });
   }, [embeddedPropID]);
 
-  // 2) If user is logged in, fetch their profile/takes
   useEffect(() => {
 	if (loggedInUser && loggedInUser.profileID) {
 	  fetch(`/api/profile/${loggedInUser.profileID}`)
@@ -452,13 +423,10 @@ export default function VerificationWidget({ embeddedPropID }) {
 			setUserTakes(data.userTakes);
 		  }
 		})
-		.catch((err) =>
-		  console.error('[VerificationWidget] /api/profile fetch error:', err)
-		);
+		.catch((err) => console.error('[VerificationWidget] /api/profile error:', err));
 	}
   }, [loggedInUser]);
 
-  // 3) Check if userTakes includes a take for this prop
   useEffect(() => {
 	if (!propData || !propData.propID) return;
 	const existing = userTakes.find((t) => t.propID === propData.propID);
@@ -472,48 +440,78 @@ export default function VerificationWidget({ embeddedPropID }) {
   }
 
   if (!propData || propData.error) {
-	return (
-	  <div style={{ padding: '2rem', color: 'red' }}>
-		{propData?.error || 'Error loading proposition'}
-	  </div>
-	);
+	return <div style={{ padding: '2rem' }}>Prop not found or error loading prop.</div>;
   }
 
-  // If prop is not open => can't vote
   const propStatus = propData.propStatus || 'open';
   if (propStatus !== 'open') {
 	return (
 	  <div style={{ padding: '2rem', maxWidth: '600px', margin: '0 auto' }}>
-		<h2 className="text-xl font-bold mb-2">{propData.propShort}</h2>
-		<p style={{ color: 'red', fontWeight: 'bold' }}>
-		  This prop is '{propStatus}'. You cannot vote anymore.
-		</p>
-		<p>
-		  Current side counts: A = {propData.propSideAPct}%, B = {propData.propSideBPct}%
-		</p>
+		<div
+		  style={{
+			backgroundColor: '#fff',
+			boxShadow: '0 2px 6px rgba(0,0,0,0.1)',
+			borderRadius: '8px',
+			padding: '1.5rem'
+		  }}
+		>
+		  <h2 className="text-xl font-bold mb-2">{propData.propShort}</h2>
+		  <p>This prop is '{propStatus}'. You cannot vote anymore.</p>
+		  <p>
+			Current side counts: A = {propData.propSideAPct}%, B ={' '}
+			{propData.propSideBPct}%
+		  </p>
+		</div>
 	  </div>
 	);
   }
 
-  // If user already took it => show message
   if (alreadyTookTakeID) {
 	return (
 	  <div style={{ padding: '2rem', maxWidth: '600px', margin: '0 auto' }}>
-		<h2 className="text-xl font-bold mb-2">{propData.propShort}</h2>
-		<p>You’ve Already Made This Take.</p>
-		<p>
-		  <a href={`/takes/${alreadyTookTakeID}`} target="_blank" rel="noreferrer">
-			View your existing take here
-		  </a>
-		</p>
-		<p>
-		  Current side counts: A = {propData.propSideAPct}%, B = {propData.propSideBPct}%
-		</p>
+		<div
+		  style={{
+			backgroundColor: '#fff',
+			boxShadow: '0 2px 6px rgba(0,0,0,0.1)',
+			borderRadius: '8px',
+			padding: '1.5rem'
+		  }}
+		>
+		  <h2 className="text-xl font-bold mb-2">{propData.propShort}</h2>
+		  <p>You’ve Already Made This Take.</p>
+		  <p>
+			<a href={`/takes/${alreadyTookTakeID}`} target="_blank" rel="noreferrer">
+			  View your existing take here
+			</a>
+		  </p>
+		  <p>
+			Current side counts: A = {propData.propSideAPct}%, B ={' '}
+			{propData.propSideBPct}%
+		  </p>
+		</div>
 	  </div>
 	);
   }
 
-  // Otherwise, let them pick a side & vote
+  // If it's open and user hasn't voted => show the poll inside a subtle white box
+  if (currentStep === 'complete') {
+	return (
+	  <div style={{ padding: '2rem', maxWidth: '600px', margin: '0 auto' }}>
+		<div
+		  style={{
+			backgroundColor: '#fff',
+			boxShadow: '0 2px 6px rgba(0,0,0,0.1)',
+			borderRadius: '8px',
+			padding: '1.5rem'
+		  }}
+		>
+		  <h2 className="text-xl font-bold mb-2">{propData.propShort}</h2>
+		  <CompleteStep takeID={takeID} />
+		</div>
+	  </div>
+	);
+  }
+
   const forcedResults = propStatus !== 'open';
   const effectiveResultsRevealed = forcedResults || resultsRevealed;
 
@@ -534,59 +532,60 @@ export default function VerificationWidget({ embeddedPropID }) {
 	setCurrentStep('complete');
   }
 
-  if (currentStep === 'complete') {
-	return (
-	  <div style={{ padding: '2rem', maxWidth: '600px', margin: '0 auto' }}>
-		<h2 className="text-xl font-bold mb-2">{propData.propShort}</h2>
-		<CompleteStep takeID={takeID} />
-	  </div>
-	);
-  }
-
   return (
 	<div style={{ padding: '2rem', maxWidth: '600px', margin: '0 auto' }}>
-	  <h2 className="text-xl font-bold mb-2">{propData.propShort}</h2>
+	  {/* The subtle white "card" with drop shadow */}
+	  <div
+		style={{
+		  backgroundColor: '#fff',
+		  boxShadow: '0 2px 6px rgba(0,0,0,0.1)',
+		  borderRadius: '8px',
+		  padding: '1.5rem'
+		}}
+	  >
+		<h2 className="text-xl font-bold mb-2">{propData.propShort}</h2>
 
-	  <PropChoices
-		selectedChoice={selectedChoice}
-		resultsRevealed={effectiveResultsRevealed}
-		onSelectChoice={handleSelectChoice}
-		propSideAPct={propData.propSideAPct}
-		propSideBPct={propData.propSideBPct}
-		sideALabel={propData.PropSideAShort}
-		sideBLabel={propData.PropSideBShort}
-		propStatus={propStatus}
-	  />
-
-	  {loggedInUser ? (
-		<MakeTakeButton
+		<PropChoices
 		  selectedChoice={selectedChoice}
-		  propID={propData.propID}
-		  onTakeComplete={handleComplete}
-		  loggedInUser={loggedInUser}
+		  resultsRevealed={effectiveResultsRevealed}
+		  onSelectChoice={handleSelectChoice}
+		  propSideAPct={propData.propSideAPct}
+		  propSideBPct={propData.propSideBPct}
+		  sideALabel={propData.PropSideAShort}
+		  sideBLabel={propData.PropSideBShort}
+		  propStatus={propStatus}
 		/>
-	  ) : (
-		<>
-		  {currentStep === 'phone' && (
-			<PhoneNumberForm
-			  phoneNumber={phoneNumber}
-			  onSubmit={(phone) => {
-				setPhoneNumber(phone);
-				setCurrentStep('code');
-			  }}
-			  selectedChoice={selectedChoice}
-			/>
-		  )}
-		  {currentStep === 'code' && (
-			<VerificationForm
-			  phoneNumber={phoneNumber}
-			  selectedChoice={selectedChoice}
-			  propID={propData.propID}
-			  onComplete={handleComplete}
-			/>
-		  )}
-		</>
-	  )}
+
+		{loggedInUser ? (
+		  <MakeTakeButton
+			selectedChoice={selectedChoice}
+			propID={propData.propID}
+			onTakeComplete={handleComplete}
+			loggedInUser={loggedInUser}
+		  />
+		) : (
+		  <>
+			{currentStep === 'phone' && (
+			  <PhoneNumberForm
+				phoneNumber={phoneNumber}
+				onSubmit={(phone) => {
+				  setPhoneNumber(phone);
+				  setCurrentStep('code');
+				}}
+				selectedChoice={selectedChoice}
+			  />
+			)}
+			{currentStep === 'code' && (
+			  <VerificationForm
+				phoneNumber={phoneNumber}
+				selectedChoice={selectedChoice}
+				propID={propData.propID}
+				onComplete={handleComplete}
+			  />
+			)}
+		  </>
+		)}
+	  </div>
 	</div>
   );
 }
