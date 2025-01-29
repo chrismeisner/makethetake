@@ -54,14 +54,17 @@ function generateRandomProfileID(length = 8) {
 
 // --------------------------------------
 // 2) Helper: ensureProfileRecord(phoneE164)
+//    - Correctly uses a string filter for Airtable
 // --------------------------------------
 async function ensureProfileRecord(phoneE164) {
-  console.log('\n[ensureProfileRecord] Searching for phone:', phoneE164);
+  console.log('[ensureProfileRecord] Checking phone:', phoneE164);
 
-  const filterFormula = `{profileMobile} = "${phoneE164}"`;
+  // IMPORTANT: Must be a string formula:
+  const filterByFormula = `{profileMobile} = "${phoneE164}"`;
+
   const found = await base('Profiles')
 	.select({
-	  filterByFormula: filterFormula,
+	  filterByFormula,
 	  maxRecords: 1,
 	})
 	.all();
@@ -77,7 +80,7 @@ async function ensureProfileRecord(phoneE164) {
   }
 
   const newProfileID = generateRandomProfileID(8);
-  console.log(`[ensureProfileRecord] Creating new profile with ID="${newProfileID}"`);
+  console.log('[ensureProfileRecord] Creating new profile with ID:', newProfileID);
 
   const created = await base('Profiles').create([
 	{
@@ -98,7 +101,7 @@ async function ensureProfileRecord(phoneE164) {
 }
 
 // --------------------------------------
-// 3) Twilio-based endpoints
+// 3) Twilio-based endpoints (Verify v2)
 // --------------------------------------
 app.post('/api/sendCode', async (req, res) => {
   const { phone } = req.body;
@@ -109,9 +112,9 @@ app.post('/api/sendCode', async (req, res) => {
   try {
 	const numeric = phone.replace(/\D/g, '');
 	const e164Phone = '+1' + numeric;
-	console.log('[api/sendCode] Sending code to', e164Phone);
+	console.log('[api/sendCode] Sending code to:', e164Phone);
 
-	await twilioClient.verify
+	await twilioClient.verify.v2
 	  .services(process.env.TWILIO_VERIFY_SERVICE_SID)
 	  .verifications.create({ to: e164Phone, channel: 'sms' });
 
@@ -132,13 +135,13 @@ app.post('/api/verifyCode', async (req, res) => {
 	const numeric = phone.replace(/\D/g, '');
 	const e164Phone = '+1' + numeric;
 
-	const check = await twilioClient.verify
+	const check = await twilioClient.verify.v2
 	  .services(process.env.TWILIO_VERIFY_SERVICE_SID)
 	  .verificationChecks.create({ to: e164Phone, code });
 
 	if (check.status === 'approved') {
-	  // If code is correct, ensure we have a Profile
 	  try {
+		// If code is correct, ensure profile
 		const profile = await ensureProfileRecord(e164Phone);
 		// Save user in session
 		req.session.user = {
@@ -147,6 +150,7 @@ app.post('/api/verifyCode', async (req, res) => {
 		};
 		return res.json({ success: true });
 	  } catch (errProfile) {
+		console.error('[api/verifyCode] Profile error:', errProfile);
 		return res.status(500).json({ error: 'Could not create/find profile' });
 	  }
 	} else {
@@ -181,7 +185,6 @@ app.post('/api/logout', (req, res) => {
 
 // --------------------------------------
 // 4) GET /api/prop?propID=xyz
-//    (Returns contentImage, subject data, createdAt, etc.)
 // --------------------------------------
 app.get('/api/prop', async (req, res) => {
   const propID = req.query.propID;
@@ -190,7 +193,6 @@ app.get('/api/prop', async (req, res) => {
   }
 
   try {
-	// 1) Find the prop record
 	const found = await base('Props')
 	  .select({
 		filterByFormula: `{propID}='${propID}'`,
@@ -203,11 +205,9 @@ app.get('/api/prop', async (req, res) => {
 	}
 	const propRec = found[0];
 	const pf = propRec.fields;
+	const createdAt = propRec._rawJson.createdTime;
 
-	// 2) createdAt from the prop record
-	const createdAt = propRec._rawJson.createdTime; // e.g. "2025-01-01T12:34:56.000Z"
-
-	// 3) If there's a subject ID, fetch subject data
+	// Subject info
 	let subjectTitle = '';
 	let subjectLogoUrl = '';
 	if (pf.propSubjectID) {
@@ -217,25 +217,22 @@ app.get('/api/prop', async (req, res) => {
 		  maxRecords: 1,
 		})
 		.all();
-
 	  if (subFound && subFound.length > 0) {
-		const subRec = subFound[0];
-		const sf = subRec.fields;
+		const sf = subFound[0].fields;
 		subjectTitle = sf.subjectTitle || '';
-
 		if (sf.subjectLogo && Array.isArray(sf.subjectLogo) && sf.subjectLogo.length > 0) {
-		  subjectLogoUrl = sf.subjectLogo[0].url; // first attached image
+		  subjectLogoUrl = sf.subjectLogo[0].url;
 		}
 	  }
 	}
 
-	// 4) Count Takes for side A & side B
+	// Count takes
 	const allTakes = await base('Takes')
 	  .select({ filterByFormula: `{propID}='${propID}'`, maxRecords: 5000 })
 	  .all();
 
-	let sideACount = 0,
-	  sideBCount = 0;
+	let sideACount = 0;
+	let sideBCount = 0;
 	for (const t of allTakes) {
 	  if (t.fields.propSide === 'A') sideACount++;
 	  if (t.fields.propSide === 'B') sideBCount++;
@@ -246,7 +243,7 @@ app.get('/api/prop', async (req, res) => {
 	const propSideAPct = Math.round((sideAwithOffset / total) * 100);
 	const propSideBPct = Math.round((sideBwithOffset / total) * 100);
 
-	// 5) Gather related content from the Content table
+	// Content
 	const contentRecords = await base('Content')
 	  .select({
 		filterByFormula: `{propID} = '${propID}'`,
@@ -260,7 +257,6 @@ app.get('/api/prop', async (req, res) => {
 	  if (cf.contentImage && Array.isArray(cf.contentImage) && cf.contentImage.length > 0) {
 		contentImageUrl = cf.contentImage[0].url;
 	  }
-
 	  return {
 		contentTitle: cf.contentTitle || '',
 		contentURL: cf.contentURL || '',
@@ -268,7 +264,6 @@ app.get('/api/prop', async (req, res) => {
 	  };
 	});
 
-	// 6) Return everything needed by your frontend
 	return res.json({
 	  success: true,
 	  propID,
@@ -278,12 +273,10 @@ app.get('/api/prop', async (req, res) => {
 	  propLong: pf.propLong || '',
 	  propStatus: pf.propStatus || 'open',
 
-	  // newly added
 	  createdAt,
 	  subjectTitle,
 	  subjectLogoUrl,
 
-	  // side labels for the widget
 	  PropSideAShort: pf.PropSideAShort || 'Side A',
 	  PropSideBShort: pf.PropSideBShort || 'Side B',
 
@@ -311,7 +304,7 @@ app.post('/api/take', async (req, res) => {
   }
 
   try {
-	// Check prop status
+	// 1) Check prop
 	const propsFound = await base('Props')
 	  .select({
 		filterByFormula: `{propID}='${propID}'`,
@@ -324,7 +317,6 @@ app.post('/api/take', async (req, res) => {
 		.status(404)
 		.json({ error: `No prop found for propID=${propID}` });
 	}
-
 	const propRec = propsFound[0];
 	const propStatus = propRec.fields.propStatus || 'open';
 	if (propStatus !== 'open') {
@@ -333,18 +325,19 @@ app.post('/api/take', async (req, res) => {
 		.json({ error: `This prop is '${propStatus}'. No new takes allowed.` });
 	}
 
-	// Count existing Takes
+	// 2) Count existing
 	const allTakes = await base('Takes')
 	  .select({ filterByFormula: `{propID}='${propID}'`, maxRecords: 5000 })
 	  .all();
 
-	let sideACount = 0,
-	  sideBCount = 0;
+	let sideACount = 0;
+	let sideBCount = 0;
 	for (const t of allTakes) {
-	  const s = t.fields.propSide;
-	  if (s === 'A') sideACount++;
-	  if (s === 'B') sideBCount++;
+	  if (t.fields.propSide === 'A') sideACount++;
+	  if (t.fields.propSide === 'B') sideBCount++;
 	}
+
+	// compute popularity
 	const sideAwithOffset = sideACount + 1;
 	const sideBwithOffset = sideBCount + 1;
 	const total = sideAwithOffset + sideBwithOffset;
@@ -352,21 +345,32 @@ app.post('/api/take', async (req, res) => {
 	const sideBPct = Math.round((sideBwithOffset / total) * 100);
 	const takePopularity = propSide === 'A' ? sideAPct : sideBPct;
 
-	// Convert phone to E.164 if needed
+	// 3) E.164
 	let e164 = takeMobile;
 	if (!e164.startsWith('+')) {
 	  e164 = '+1' + e164.replace(/\D/g, '');
 	}
 
-	// Ensure a Profile
-	let profile;
-	try {
-	  profile = await ensureProfileRecord(e164);
-	} catch (errProfile) {
-	  return res.status(500).json({ error: 'Could not create/find user profile' });
+	// 4) Ensure profile
+	const profile = await ensureProfileRecord(e164);
+
+	// 5) Mark older takes overwritten
+	const existingMatches = await base('Takes')
+	  .select({
+		filterByFormula: `AND({propID}="${propID}", {takeMobile}="${e164}")`,
+		maxRecords: 50,
+	  })
+	  .all();
+
+	if (existingMatches.length > 0) {
+	  const updates = existingMatches.map((rec) => ({
+		id: rec.id,
+		fields: { takeStatus: 'overwritten' },
+	  }));
+	  await base('Takes').update(updates);
 	}
 
-	// Create the new Take
+	// 6) Create new "latest" take
 	const created = await base('Takes').create([
 	  {
 		fields: {
@@ -375,17 +379,34 @@ app.post('/api/take', async (req, res) => {
 		  propSide,
 		  takePopularity,
 		  Profile: [profile.airtableId],
+		  takeStatus: 'latest',
 		},
 	  },
 	]);
-
 	const newRec = created[0];
 	const newTakeID = newRec.fields.TakeID || newRec.id;
 
-	// Return success
-	res.json({ success: true, newTakeID });
+	// 7) Re‐fetch all takes => new side counts
+	const updatedTakes = await base('Takes')
+	  .select({ filterByFormula: `{propID}='${propID}'`, maxRecords: 5000 })
+	  .all();
 
-	// Optional: Send SMS link
+	let newSideACount = 0;
+	let newSideBCount = 0;
+	for (const t of updatedTakes) {
+	  if (t.fields.propSide === 'A') newSideACount++;
+	  if (t.fields.propSide === 'B') newSideBCount++;
+	}
+
+	// 8) Return success
+	res.json({
+	  success: true,
+	  newTakeID,
+	  sideACount: newSideACount,
+	  sideBCount: newSideBCount,
+	});
+
+	// 9) Optional SMS
 	try {
 	  await twilioClient.messages.create({
 		to: e164,
@@ -408,7 +429,6 @@ app.get('/api/takes/:takeID', async (req, res) => {
   const { takeID } = req.params;
 
   try {
-	// 1) find the "Take"
 	const found = await base('Takes')
 	  .select({
 		filterByFormula: `{TakeID}='${takeID}'`,
@@ -423,7 +443,7 @@ app.get('/api/takes/:takeID', async (req, res) => {
 	const takeRec = found[0];
 	const tf = takeRec.fields;
 
-	// 2) If there's a propID, fetch that prop
+	// If there's a propID, fetch prop
 	let propData = null;
 	if (tf.propID) {
 	  const propsFound = await base('Props')
@@ -446,7 +466,7 @@ app.get('/api/takes/:takeID', async (req, res) => {
 	  }
 	}
 
-	// 3) (Optional) load "Content" for that prop
+	// Optional: load "Content" for that prop
 	let contentData = [];
 	if (tf.propID) {
 	  const contentRecords = await base('Content')
@@ -458,12 +478,10 @@ app.get('/api/takes/:takeID', async (req, res) => {
 
 	  contentData = contentRecords.map((c) => {
 		const cf = c.fields;
-
 		let contentImageUrl = '';
 		if (cf.contentImage && Array.isArray(cf.contentImage) && cf.contentImage.length > 0) {
 		  contentImageUrl = cf.contentImage[0].url;
 		}
-
 		return {
 		  airtableRecordId: c.id,
 		  contentTitle: cf.contentTitle || '',
@@ -484,6 +502,7 @@ app.get('/api/takes/:takeID', async (req, res) => {
 	  takeMobile: tf.takeMobile,
 	  takePopularity: tf.takePopularity || 0,
 	  createdTime: takeRec._rawJson.createdTime,
+	  takeStatus: tf.takeStatus || '',
 	};
 
 	res.json({
@@ -503,7 +522,6 @@ app.get('/api/takes/:takeID', async (req, res) => {
 // --------------------------------------
 app.get('/api/leaderboard', async (req, res) => {
   try {
-	// fetch all profiles
 	const allProfiles = await base('Profiles').select({ maxRecords: 5000 }).all();
 	const phoneToProfileID = new Map();
 	for (const p of allProfiles) {
@@ -513,7 +531,6 @@ app.get('/api/leaderboard', async (req, res) => {
 	  }
 	}
 
-	// fetch all takes => phone -> count
 	const allTakes = await base('Takes').select({ maxRecords: 5000 }).all();
 	const countsMap = new Map();
 	for (const t of allTakes) {
@@ -521,7 +538,6 @@ app.get('/api/leaderboard', async (req, res) => {
 	  countsMap.set(ph, (countsMap.get(ph) || 0) + 1);
 	}
 
-	// build final
 	const leaderboard = Array.from(countsMap.entries())
 	  .map(([phone, count]) => ({
 		phone,
@@ -545,7 +561,6 @@ app.get('/api/profile/:profileID', async (req, res) => {
   console.log(`[GET /api/profile/${profileID}] Starting lookup...`);
 
   try {
-	// 1) fetch 1 profile
 	const found = await base('Profiles')
 	  .select({
 		filterByFormula: `{profileID}='${profileID}'`,
@@ -560,15 +575,13 @@ app.get('/api/profile/:profileID', async (req, res) => {
 	const profRec = found[0];
 	const pf = profRec.fields;
 
-	// 2) if "Takes" is an array of record IDs
 	let userTakes = [];
 	if (Array.isArray(pf.Takes) && pf.Takes.length > 0) {
-	  // Construct the filterByFormula string properly
+	  // Build a filter to fetch all relevant takes
 	  const filterByFormula = `OR(${pf.Takes.map(
 		(id) => `RECORD_ID() = '${id}'`
 	  ).join(',')})`;
 
-	  // Then pass it as "filterByFormula"
 	  const takeRecords = await base('Takes')
 		.select({ filterByFormula, maxRecords: 5000 })
 		.all();
@@ -582,11 +595,11 @@ app.get('/api/profile/:profileID', async (req, res) => {
 		  propSide: tf.propSide || null,
 		  takePopularity: tf.takePopularity || 0,
 		  createdTime: t._rawJson.createdTime,
+		  takeStatus: tf.takeStatus || '',
 		};
 	  });
 	}
 
-	// final
 	const profileData = {
 	  airtableRecordId: profRec.id,
 	  profileID: pf.profileID,
@@ -619,21 +632,16 @@ app.get('/api/feed', async (req, res) => {
 	  })
 	  .all();
 
-	const feed = [];
-	for (const t of takeRecords) {
+	const feed = takeRecords.map((t) => {
 	  const tf = t.fields;
-	  const createdTime = t._rawJson.createdTime;
-
-	  const item = {
+	  return {
 		takeID: tf.TakeID || t.id,
 		propID: tf.propID,
 		propSide: tf.propSide,
-		createdTime,
+		createdTime: t._rawJson.createdTime,
 		takePopularity: tf.takePopularity || 0,
 	  };
-
-	  feed.push(item);
-	}
+	});
 
 	return res.json({ success: true, feed });
   } catch (err) {
@@ -650,7 +658,6 @@ app.get('/api/feed', async (req, res) => {
 // --------------------------------------
 app.get('/api/props', async (req, res) => {
   try {
-	// 1) Fetch all props
 	const propsRecords = await base('Props')
 	  .select({
 		view: 'Grid view',
@@ -671,7 +678,6 @@ app.get('/api/props', async (req, res) => {
 	  }
 	}
 
-	// 2) Build a map of subjectID => {subjectTitle, subjectLogo}
 	let subjectsMap = new Map();
 	if (subjectIDs.size > 0) {
 	  const subFilter = `OR(${[...subjectIDs]
@@ -685,12 +691,10 @@ app.get('/api/props', async (req, res) => {
 		})
 		.all();
 
-	  subjectsMap = new Map();
 	  for (const subRec of subjectRecords) {
 		const sf = subRec.fields;
 		const subjID = sf.subjectID;
 		if (!subjID) continue;
-
 		subjectsMap.set(subjID, {
 		  subjectTitle: sf.subjectTitle || '',
 		  subjectLogo: Array.isArray(sf.subjectLogo) ? sf.subjectLogo : [],
@@ -698,7 +702,6 @@ app.get('/api/props', async (req, res) => {
 	  }
 	}
 
-	// 3) Build a map of propID => array of content
 	let contentMap = new Map();
 	if (propIDs.size > 0) {
 	  const contentFilter = `OR(${[...propIDs]
@@ -721,7 +724,6 @@ app.get('/api/props', async (req, res) => {
 		  contentTitle: cf.contentTitle || '',
 		  contentURL: cf.contentURL || '',
 		};
-
 		if (!contentMap.has(cPropID)) {
 		  contentMap.set(cPropID, []);
 		}
@@ -729,7 +731,6 @@ app.get('/api/props', async (req, res) => {
 	  }
 	}
 
-	// 4) Construct final props array
 	const propsData = propsRecords.map((propRec) => {
 	  const f = propRec.fields;
 	  const createdAt = propRec._rawJson.createdTime;
@@ -755,22 +756,17 @@ app.get('/api/props', async (req, res) => {
 		propStatus: f.propStatus || 'open',
 		createdAt,
 
-		// subject-related
 		subjectID: subID,
 		subjectTitle,
 		subjectLogoUrl,
-
-		// content-related
 		content: cArr,
 	  };
 	});
 
-	res.json({ success: true, props: propsData });
+	return res.json({ success: true, props: propsData });
   } catch (err) {
 	console.error('[api/props] Error:', err);
-	return res
-	  .status(500)
-	  .json({ success: false, error: 'Server error fetching props' });
+	return res.status(500).json({ success: false, error: 'Server error fetching props' });
   }
 });
 

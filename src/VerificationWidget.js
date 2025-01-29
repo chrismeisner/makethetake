@@ -1,11 +1,20 @@
 // File: src/VerificationWidget.js
+
 import React, { useContext, useState, useEffect } from 'react';
 import InputMask from 'react-input-mask';
 import { UserContext } from './UserContext';
 
-// --------------------------------------
-// Choice & PropChoices
-// --------------------------------------
+// A helper to compute local side percentages (with +1 offset for each side).
+function computeSidePercents(aCount, bCount) {
+  const aWithOffset = aCount + 1;
+  const bWithOffset = bCount + 1;
+  const total = aWithOffset + bWithOffset;
+  const aPct = Math.round((aWithOffset / total) * 100);
+  const bPct = Math.round((bWithOffset / total) * 100);
+  return { aPct, bPct };
+}
+
+// Choice component
 function Choice({
   label,
   percentage,
@@ -13,29 +22,18 @@ function Choice({
   isSelected,
   anySideSelected,
   showResults,
-  onSelect,
-  propStatus
+  propStatus,
+  onSelect
 }) {
   const [isHovered, setIsHovered] = useState(false);
-
-  let backgroundColor = !anySideSelected ? '#f9f9f9' : '#ffffff'; // no side => gray, else => white
+  const backgroundColor = !anySideSelected ? '#f9f9f9' : '#ffffff';
   const outlineStyle = isSelected ? '2px solid #3b82f6' : 'none';
-
   const baseBorder = '1px solid #ddd';
   const hoverBorder = '1px solid #aaa';
-
+  const clickable = propStatus === 'open';
   const fillOpacity = showResults ? (isSelected ? 1 : 0.4) : 0;
   const fillColor = `rgba(219, 234, 254, ${fillOpacity})`;
   const fillWidth = showResults ? `${percentage}%` : '0%';
-
-  let correctnessIcon = null;
-  if (propStatus === 'gradedA') {
-	correctnessIcon = sideValue === 'A' ? '✅' : '❌';
-  } else if (propStatus === 'gradedB') {
-	correctnessIcon = sideValue === 'B' ? '✅' : '❌';
-  }
-
-  const clickable = propStatus === 'open';
 
   return (
 	<div
@@ -56,6 +54,7 @@ function Choice({
 		transition: 'border-color 0.2s ease'
 	  }}
 	>
+	  {/* The fill background for showing the percentage bar */}
 	  <div
 		style={{
 		  position: 'absolute',
@@ -69,39 +68,29 @@ function Choice({
 		}}
 	  />
 	  <div style={{ position: 'relative', zIndex: 1 }}>
-		<span>
-		  {label} {correctnessIcon && <strong>{correctnessIcon}</strong>}
-		</span>
-		<span
-		  style={{
-			visibility: showResults ? 'visible' : 'hidden',
-			marginLeft: '6px'
-		  }}
-		>
-		  ({percentage}%)
-		</span>
+		<span>{label}</span>
+		{showResults && <span style={{ marginLeft: 6 }}>({percentage}%)</span>}
 	  </div>
 	</div>
   );
 }
 
+// PropChoices component
 function PropChoices({
+  propStatus,
   selectedChoice,
   resultsRevealed,
   onSelectChoice,
-  propSideAPct,
-  propSideBPct,
+  sideAPct,
+  sideBPct,
   sideALabel,
-  sideBLabel,
-  propStatus
+  sideBLabel
 }) {
   const anySideSelected = selectedChoice !== '';
-
   const choices = [
-	{ value: 'A', label: sideALabel, percentage: propSideAPct },
-	{ value: 'B', label: sideBLabel, percentage: propSideBPct }
+	{ value: 'A', label: sideALabel, percentage: sideAPct },
+	{ value: 'B', label: sideBLabel, percentage: sideBPct }
   ];
-
   return (
 	<div style={{ marginBottom: '1rem' }}>
 	  {choices.map((choice) => {
@@ -115,8 +104,8 @@ function PropChoices({
 			isSelected={isSelected}
 			anySideSelected={anySideSelected}
 			showResults={resultsRevealed}
-			onSelect={() => onSelectChoice(choice.value)}
 			propStatus={propStatus}
+			onSelect={() => onSelectChoice(choice.value)}
 		  />
 		);
 	  })}
@@ -124,12 +113,9 @@ function PropChoices({
   );
 }
 
-// --------------------------------------
-// PhoneNumberForm & VerificationForm
-// --------------------------------------
+// PhoneNumberForm
 function PhoneNumberForm({ phoneNumber, onSubmit, selectedChoice }) {
   const [localPhone, setLocalPhone] = useState(phoneNumber);
-
   const numericPhone = localPhone.replace(/\D/g, '');
   const isPhoneValid = numericPhone.length === 10;
   const hasSide = selectedChoice !== '';
@@ -154,9 +140,7 @@ function PhoneNumberForm({ phoneNumber, onSubmit, selectedChoice }) {
 
   return (
 	<div style={{ marginBottom: '1rem' }}>
-	  <label style={{ display: 'block', marginBottom: '0.5rem' }}>
-		Phone Number
-	  </label>
+	  <label style={{ display: 'block', marginBottom: '0.5rem' }}>Phone Number</label>
 	  <div style={{ display: 'flex', gap: '0.5rem' }}>
 		<InputMask
 		  mask="(999) 999-9999"
@@ -174,7 +158,6 @@ function PhoneNumberForm({ phoneNumber, onSubmit, selectedChoice }) {
 			/>
 		  )}
 		</InputMask>
-
 		<button
 		  onClick={handleSend}
 		  disabled={isDisabled}
@@ -191,6 +174,7 @@ function PhoneNumberForm({ phoneNumber, onSubmit, selectedChoice }) {
   );
 }
 
+// VerificationForm
 function VerificationForm({ phoneNumber, selectedChoice, propID, onComplete }) {
   const [localCode, setLocalCode] = useState('');
   const { setLoggedInUser } = useContext(UserContext);
@@ -201,9 +185,7 @@ function VerificationForm({ phoneNumber, selectedChoice, propID, onComplete }) {
 	  console.log('Invalid code length');
 	  return;
 	}
-
 	try {
-	  // Verify code
 	  const verifyResp = await fetch('/api/verifyCode', {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
@@ -214,15 +196,11 @@ function VerificationForm({ phoneNumber, selectedChoice, propID, onComplete }) {
 		console.error('Code verification failed');
 		return;
 	  }
-
-	  // If success, fetch /api/me
 	  const meResp = await fetch('/api/me', { credentials: 'include' });
 	  const meData = await meResp.json();
 	  if (meData.loggedIn && meData.user) {
 		setLoggedInUser(meData.user);
 	  }
-
-	  // Create the "take"
 	  const takeBody = {
 		takeMobile: phoneNumber,
 		propID,
@@ -237,14 +215,16 @@ function VerificationForm({ phoneNumber, selectedChoice, propID, onComplete }) {
 		console.error('Failed to log the take');
 		return;
 	  }
-
 	  const takeData = await takeResp.json();
 	  if (!takeData.success) {
 		console.error('Failed to create the take');
 		return;
 	  }
-
-	  onComplete(takeData.newTakeID);
+	  onComplete(takeData.newTakeID, {
+		success: true,
+		sideACount: takeData.sideACount,
+		sideBCount: takeData.sideBCount
+	  });
 	} catch (err) {
 	  console.error('[VerificationForm] Error verifying code:', err);
 	}
@@ -256,30 +236,33 @@ function VerificationForm({ phoneNumber, selectedChoice, propID, onComplete }) {
 
   return (
 	<div style={{ marginBottom: '1rem' }}>
-	  <label>Enter Your 6-Digit Verification Code</label>
-	  <InputMask
-		mask="999999"
-		maskPlaceholder=""
-		value={localCode}
-		onChange={(e) => setLocalCode(e.target.value)}
-	  >
-		{() => (
-		  <input
-			type="tel"
-			placeholder="123456"
-			style={{ display: 'block', margin: '0.5rem 0' }}
-		  />
-		)}
-	  </InputMask>
-
-	  <div style={{ display: 'flex', gap: '0.5rem' }}>
+	  <label style={{ display: 'block', marginBottom: '0.5rem' }}>
+		Enter Your 6-Digit Verification Code
+	  </label>
+	  <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+		<InputMask
+		  mask="999999"
+		  maskPlaceholder=""
+		  value={localCode}
+		  onChange={(e) => setLocalCode(e.target.value)}
+		>
+		  {() => (
+			<input
+			  type="tel"
+			  placeholder="123456"
+			  style={{
+				flex: 1,
+				backgroundColor: '#f5f5f5'
+			  }}
+			/>
+		  )}
+		</InputMask>
 		<button
 		  onClick={handleVerify}
 		  className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
 		>
 		  Verify
 		</button>
-
 		<button
 		  onClick={handleResend}
 		  className="bg-gray-200 px-3 py-2 rounded hover:bg-gray-300"
@@ -291,9 +274,7 @@ function VerificationForm({ phoneNumber, selectedChoice, propID, onComplete }) {
   );
 }
 
-// --------------------------------------
-// MakeTakeButton (logged-in flow)
-// --------------------------------------
+// MakeTakeButton
 function MakeTakeButton({ selectedChoice, propID, onTakeComplete, loggedInUser }) {
   const [confirming, setConfirming] = useState(false);
   const disabled = !selectedChoice;
@@ -305,12 +286,7 @@ function MakeTakeButton({ selectedChoice, propID, onTakeComplete, loggedInUser }
 	  return;
 	}
 	try {
-	  const body = {
-		takeMobile: loggedInUser.phone,
-		propID,
-		propSide: selectedChoice
-	  };
-
+	  const body = { takeMobile: loggedInUser.phone, propID, propSide: selectedChoice };
 	  const resp = await fetch('/api/take', {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
@@ -322,15 +298,17 @@ function MakeTakeButton({ selectedChoice, propID, onTakeComplete, loggedInUser }
 		setConfirming(false);
 		return;
 	  }
-
 	  const data = await resp.json();
 	  if (!data.success) {
 		console.error('Backend error creating take');
 		setConfirming(false);
 		return;
 	  }
-
-	  onTakeComplete(data.newTakeID);
+	  onTakeComplete(data.newTakeID, {
+		success: true,
+		sideACount: data.sideACount,
+		sideBCount: data.sideBCount
+	  });
 	} catch (error) {
 	  console.error('[MakeTakeButton] Error:', error);
 	  setConfirming(false);
@@ -359,9 +337,7 @@ function MakeTakeButton({ selectedChoice, propID, onTakeComplete, loggedInUser }
   );
 }
 
-// --------------------------------------
 // CompleteStep
-// --------------------------------------
 function CompleteStep({ takeID }) {
   return (
 	<div style={{ marginTop: '1rem' }}>
@@ -378,9 +354,6 @@ function CompleteStep({ takeID }) {
   );
 }
 
-// --------------------------------------
-// MAIN VerificationWidget
-// --------------------------------------
 export default function VerificationWidget({ embeddedPropID }) {
   const { loggedInUser } = useContext(UserContext);
 
@@ -392,59 +365,105 @@ export default function VerificationWidget({ embeddedPropID }) {
   const [loading, setLoading] = useState(true);
   const [takeID, setTakeID] = useState(null);
 
+  // side counts from the server
+  const [sideACount, setSideACount] = useState(0);
+  const [sideBCount, setSideBCount] = useState(0);
+
+  // track user's existing “latest” take
   const [userTakes, setUserTakes] = useState([]);
   const [alreadyTookTakeID, setAlreadyTookTakeID] = useState(null);
+  const [alreadyTookSide, setAlreadyTookSide] = useState(null);
 
+  // "Last Updated" time stamp
+  const [lastUpdated, setLastUpdated] = useState(new Date());
+
+  // 1) Load the prop data once
   useEffect(() => {
 	let finalPropID = embeddedPropID;
 	if (!finalPropID) {
 	  const params = new URLSearchParams(window.location.search);
 	  finalPropID = params.get('propID') || 'defaultProp';
 	}
-
 	fetch(`/api/prop?propID=${finalPropID}`)
-	  .then((res) => res.json())
-	  .then((data) => {
+	  .then(res => res.json())
+	  .then(data => {
 		setPropData(data);
 		setLoading(false);
+		if (data.success) {
+		  setSideACount(data.sideACount || 0);
+		  setSideBCount(data.sideBCount || 0);
+		}
+		setLastUpdated(new Date());
 	  })
-	  .catch((err) => {
+	  .catch(err => {
 		console.error('[VerificationWidget] Error fetching prop:', err);
 		setLoading(false);
 	  });
   }, [embeddedPropID]);
 
+  // 2) If user is logged in => fetch /api/profile => userTakes
   useEffect(() => {
-	if (loggedInUser && loggedInUser.profileID) {
+	if (loggedInUser?.profileID) {
 	  fetch(`/api/profile/${loggedInUser.profileID}`)
-		.then((res) => res.json())
-		.then((data) => {
+		.then(res => res.json())
+		.then(data => {
 		  if (data.success && data.userTakes) {
 			setUserTakes(data.userTakes);
+			setLastUpdated(new Date());
 		  }
 		})
-		.catch((err) => console.error('[VerificationWidget] /api/profile error:', err));
+		.catch(err => console.error('[VerificationWidget] /api/profile error:', err));
 	}
   }, [loggedInUser]);
 
+  // 3) Pick the “latest” take for this user + prop
   useEffect(() => {
-	if (!propData || !propData.propID) return;
-	const existing = userTakes.find((t) => t.propID === propData.propID);
-	if (existing) {
-	  setAlreadyTookTakeID(existing.takeID);
+	if (!propData?.propID) return;
+	const latestTake = userTakes.find(
+	  t => t.propID === propData.propID && t.takeStatus === 'latest'
+	);
+	if (latestTake) {
+	  setAlreadyTookTakeID(latestTake.takeID);
+	  setAlreadyTookSide(latestTake.propSide);
 	}
   }, [propData, userTakes]);
+
+  function handleComplete(newTakeID, freshData) {
+	// After the user actually creates/verifies a take
+	setTakeID(newTakeID);
+	if (freshData && freshData.success) {
+	  // Use the newly returned side counts from /api/take
+	  setSideACount(freshData.sideACount || 0);
+	  setSideBCount(freshData.sideBCount || 0);
+	}
+	setLastUpdated(new Date());
+	setCurrentStep('complete');
+  }
+
+  // Open scenario user picks side => we do not increment or change the local counts.
+  // We only set resultsRevealed to show the distribution (or you can remove that if not needed).
+  function handleSelectChoice(choiceValue) {
+	if (choiceValue === selectedChoice) {
+	  setSelectedChoice('');
+	  setResultsRevealed(false);
+	} else {
+	  setSelectedChoice(choiceValue);
+	  setResultsRevealed(true); // we show the existing distribution, but do NOT increment locally
+	}
+  }
 
   if (loading) {
 	return <div style={{ padding: '2rem' }}>Loading proposition...</div>;
   }
-
   if (!propData || propData.error) {
 	return <div style={{ padding: '2rem' }}>Prop not found or error loading prop.</div>;
   }
 
   const propStatus = propData.propStatus || 'open';
+
+  // If prop closed => no voting
   if (propStatus !== 'open') {
+	const totalTakes = sideACount + sideBCount + 2;
 	return (
 	  <div style={{ padding: '2rem', maxWidth: '600px', margin: '0 auto' }}>
 		<div
@@ -457,16 +476,24 @@ export default function VerificationWidget({ embeddedPropID }) {
 		>
 		  <h2 className="text-xl font-bold mb-2">{propData.propShort}</h2>
 		  <p>This prop is '{propStatus}'. You cannot vote anymore.</p>
-		  <p>
-			Current side counts: A = {propData.propSideAPct}%, B ={' '}
-			{propData.propSideBPct}%
+
+		  <p style={{ marginTop: '1rem', fontWeight: 'bold' }}>
+			Total Takes: {totalTakes}
 		  </p>
+
+		  {/* Last updated time (left-aligned) */}
+		  <div style={{ marginTop: '1rem', fontSize: '0.9rem', color: '#666' }}>
+			Last Updated: {lastUpdated.toLocaleString()}
+		  </div>
 		</div>
 	  </div>
 	);
   }
 
+  // If user already made a "latest" take => show read-only distribution
   if (alreadyTookTakeID) {
+	const { aPct, bPct } = computeSidePercents(sideACount, sideBCount);
+	const totalTakes = sideACount + sideBCount + 2;
 	return (
 	  <div style={{ padding: '2rem', maxWidth: '600px', margin: '0 auto' }}>
 		<div
@@ -484,17 +511,38 @@ export default function VerificationWidget({ embeddedPropID }) {
 			  View your existing take here
 			</a>
 		  </p>
-		  <p>
-			Current side counts: A = {propData.propSideAPct}%, B ={' '}
-			{propData.propSideBPct}%
+
+		  <p style={{ marginTop: '1rem', fontWeight: 'bold' }}>
+			Total Takes: {totalTakes}
 		  </p>
+
+		  <PropChoices
+			propStatus="alreadyTook"
+			selectedChoice={alreadyTookSide}
+			resultsRevealed={true}
+			onSelectChoice={() => {}}
+			sideAPct={aPct}
+			sideBPct={bPct}
+			sideALabel={propData.PropSideAShort}
+			sideBLabel={propData.PropSideBShort}
+		  />
+
+		  {/* Last updated time */}
+		  <div style={{ marginTop: '1rem', fontSize: '0.9rem', color: '#666' }}>
+			Last Updated: {lastUpdated.toLocaleString()}
+		  </div>
 		</div>
 	  </div>
 	);
   }
 
-  // If it's open and user hasn't voted => show the poll inside a subtle white box
+  // If user completed => "thanks" w/ fresh data from server
   if (currentStep === 'complete') {
+	const freshA = sideACount;
+	const freshB = sideBCount;
+	const { aPct, bPct } = computeSidePercents(freshA, freshB);
+	const totalTakes = freshA + freshB + 2;
+
 	return (
 	  <div style={{ padding: '2rem', maxWidth: '600px', margin: '0 auto' }}>
 		<div
@@ -507,34 +555,39 @@ export default function VerificationWidget({ embeddedPropID }) {
 		>
 		  <h2 className="text-xl font-bold mb-2">{propData.propShort}</h2>
 		  <CompleteStep takeID={takeID} />
+
+		  <p style={{ marginTop: '1rem', fontWeight: 'bold' }}>
+			Total Takes: {totalTakes}
+		  </p>
+
+		  {selectedChoice && (
+			<PropChoices
+			  propStatus="alreadyTook"
+			  selectedChoice={selectedChoice}
+			  resultsRevealed={true}
+			  onSelectChoice={() => {}}
+			  sideAPct={aPct}
+			  sideBPct={bPct}
+			  sideALabel={propData.PropSideAShort}
+			  sideBLabel={propData.PropSideBShort}
+			/>
+		  )}
+
+		  {/* Last updated time */}
+		  <div style={{ marginTop: '1rem', fontSize: '0.9rem', color: '#666' }}>
+			Last Updated: {lastUpdated.toLocaleString()}
+		  </div>
 		</div>
 	  </div>
 	);
   }
 
-  const forcedResults = propStatus !== 'open';
-  const effectiveResultsRevealed = forcedResults || resultsRevealed;
-
-  function handleSelectChoice(choiceValue) {
-	if (!forcedResults) {
-	  if (choiceValue === selectedChoice) {
-		setSelectedChoice('');
-		setResultsRevealed(false);
-	  } else {
-		setSelectedChoice(choiceValue);
-		setResultsRevealed(true);
-	  }
-	}
-  }
-
-  function handleComplete(newTakeID) {
-	setTakeID(newTakeID);
-	setCurrentStep('complete');
-  }
+  // Otherwise => normal "open" scenario (no local increment)
+  const { aPct, bPct } = computeSidePercents(sideACount, sideBCount);
+  const totalTakes = sideACount + sideBCount + 2;
 
   return (
 	<div style={{ padding: '2rem', maxWidth: '600px', margin: '0 auto' }}>
-	  {/* The subtle white "card" with drop shadow */}
 	  <div
 		style={{
 		  backgroundColor: '#fff',
@@ -546,15 +599,19 @@ export default function VerificationWidget({ embeddedPropID }) {
 		<h2 className="text-xl font-bold mb-2">{propData.propShort}</h2>
 
 		<PropChoices
+		  propStatus="open"
 		  selectedChoice={selectedChoice}
-		  resultsRevealed={effectiveResultsRevealed}
+		  resultsRevealed={resultsRevealed}
 		  onSelectChoice={handleSelectChoice}
-		  propSideAPct={propData.propSideAPct}
-		  propSideBPct={propData.propSideBPct}
+		  sideAPct={aPct}
+		  sideBPct={bPct}
 		  sideALabel={propData.PropSideAShort}
 		  sideBLabel={propData.PropSideBShort}
-		  propStatus={propStatus}
 		/>
+
+		<div style={{ marginTop: '1rem', fontWeight: 'bold' }}>
+		  Total Takes: {totalTakes}
+		</div>
 
 		{loggedInUser ? (
 		  <MakeTakeButton
@@ -585,6 +642,11 @@ export default function VerificationWidget({ embeddedPropID }) {
 			)}
 		  </>
 		)}
+
+		{/* Last updated time */}
+		<div style={{ marginTop: '1rem', fontSize: '0.9rem', color: '#666' }}>
+		  Last Updated: {lastUpdated.toLocaleString()}
+		</div>
 	  </div>
 	</div>
   );
