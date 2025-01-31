@@ -362,7 +362,7 @@ app.post('/api/take', async (req, res) => {
 	// 4) Ensure profile
 	const profile = await ensureProfileRecord(e164);
 
-	// 5) Mark older takes as overwritten (we do NOT set takePTS, since it's now a formula)
+	// 5) Mark older takes as overwritten
 	const existingMatches = await base('Takes')
 	  .select({
 		filterByFormula: `AND({propID}="${propID}", {takeMobile}="${e164}")`,
@@ -375,7 +375,6 @@ app.post('/api/take', async (req, res) => {
 		id: rec.id,
 		fields: {
 		  takeStatus: 'overwritten',
-		  // remove any direct takePTS setting
 		},
 	  }));
 	  await base('Takes').update(updates);
@@ -391,8 +390,8 @@ app.post('/api/take', async (req, res) => {
 		  takePopularity,
 		  Profile: [profile.airtableId],
 		  takeStatus: 'latest',
-		  // remove any direct takePTS setting
-		  Prop: [propAirtableID], // link to the prop if needed
+		  // Link to the prop if needed
+		  Prop: [propAirtableID],
 		},
 	  },
 	]);
@@ -526,7 +525,7 @@ app.get('/api/takes/:takeID', async (req, res) => {
 	});
   } catch (err) {
 	console.error('[api/takes/:takeID] Error:', err);
-	return res.status(500).json({ error: 'Server error fetching take' });
+	return res.status(500).json({ error: 'Could not fetch take data. Please try again later.' });
   }
 });
 
@@ -549,7 +548,7 @@ app.get('/api/leaderboard', async (req, res) => {
 	const allTakes = await base('Takes')
 	  .select({
 		maxRecords: 5000,
-		filterByFormula: `{takeStatus} != "overwritten"`,
+		filterByFormula: '{takeStatus} != "overwritten"',
 	  })
 	  .all();
 
@@ -708,34 +707,28 @@ app.get('/api/feed', async (req, res) => {
 });
 
 // --------------------------------------
-// 9.5) GET /api/takes (NEW ENDPOINT)
+// 9.5) GET /api/takes (NOW RETURNS ALL FIELDS)
 // --------------------------------------
 app.get('/api/takes', async (req, res) => {
   try {
-	// Grab records from the Airtable "Takes" table
+	// We'll skip the "fields" array, so Airtable sends *all* fields
 	const takeRecords = await base('Takes')
 	  .select({
-		// Optionally filter out overwritten takes:
-		filterByFormula: `{takeStatus} != "overwritten"`,
-		maxRecords: 5000, // adjust if needed
+		filterByFormula: '{takeStatus} != "overwritten"',
+		maxRecords: 5000,
+		// No "fields" property => get everything
 		sort: [{ field: 'Created', direction: 'desc' }],
 	  })
 	  .all();
 
-	// Map each Airtable record into a simpler object
-	const allTakes = takeRecords.map((t) => {
-	  const f = t.fields;
-	  return {
-		takeID: f.TakeID || t.id,
-		propID: f.propID,
-		propSide: f.propSide,
-		takeStatus: f.takeStatus || '',
-		createdTime: t._rawJson.createdTime,
-		// Add any other fields you need:
-		// e.g. takePopularity: f.takePopularity || 0,
-		//     takePTS: f.takePTS || 0,
-	  };
-	});
+	// For each record, just spread t.fields in case we want everything
+	const allTakes = takeRecords.map((t) => ({
+	  // All fields from Airtable:
+	  ...t.fields,
+	  // A few extra properties for convenience:
+	  airtableId: t.id,
+	  createdTime: t._rawJson.createdTime,
+	}));
 
 	// Send back an array of all relevant takes
 	res.json({
@@ -751,7 +744,9 @@ app.get('/api/takes', async (req, res) => {
   }
 });
 
+// --------------------------------------
 // 10) GET /api/props
+// --------------------------------------
 app.get('/api/props', async (req, res) => {
   try {
 	const propsRecords = await base('Props')
@@ -852,7 +847,6 @@ app.get('/api/props', async (req, res) => {
 		propStatus: f.propStatus || 'open',
 		createdAt,
 
-		// ADD THESE TWO LINES:
 		PropSideAShort: f.PropSideAShort || 'Side A',
 		PropSideBShort: f.PropSideBShort || 'Side B',
 
@@ -869,7 +863,6 @@ app.get('/api/props', async (req, res) => {
 	return res.status(500).json({ success: false, error: 'Server error fetching props' });
   }
 });
-
 
 // --------------------------------------
 // 11) Catch-all => serve index.html

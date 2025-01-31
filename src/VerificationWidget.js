@@ -140,7 +140,9 @@ function PhoneNumberForm({ phoneNumber, onSubmit, selectedChoice }) {
 
   return (
 	<div style={{ marginBottom: '1rem' }}>
-	  <label style={{ display: 'block', marginBottom: '0.5rem' }}>Phone Number</label>
+	  <label style={{ display: 'block', marginBottom: '0.5rem' }}>
+		Phone Number
+	  </label>
 	  <div style={{ display: 'flex', gap: '0.5rem' }}>
 		<InputMask
 		  mask="(999) 999-9999"
@@ -177,7 +179,7 @@ function PhoneNumberForm({ phoneNumber, onSubmit, selectedChoice }) {
 // VerificationForm
 function VerificationForm({ phoneNumber, selectedChoice, propID, onComplete }) {
   const [localCode, setLocalCode] = useState('');
-  const { setLoggedInUser } = useContext(UserContext);
+  const { setLoggedInUser } = React.useContext(UserContext);
 
   async function handleVerify() {
 	const numeric = localCode.replace(/\D/g, '');
@@ -286,7 +288,11 @@ function MakeTakeButton({ selectedChoice, propID, onTakeComplete, loggedInUser }
 	  return;
 	}
 	try {
-	  const body = { takeMobile: loggedInUser.phone, propID, propSide: selectedChoice };
+	  const body = {
+		takeMobile: loggedInUser.phone,
+		propID,
+		propSide: selectedChoice
+	  };
 	  const resp = await fetch('/api/take', {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
@@ -337,19 +343,38 @@ function MakeTakeButton({ selectedChoice, propID, onTakeComplete, loggedInUser }
   );
 }
 
-// CompleteStep
+// CompleteStep for newly created take
 function CompleteStep({ takeID }) {
+  if (!takeID) {
+	return null;
+  }
+
+  // The URL to the newly created take
+  const takeUrl = window.location.origin + '/takes/' + takeID;
+
+  // We'll embed the takeUrl in a tweet
+  const tweetText = `I just made my take! Check it out:\n\n${takeUrl} #MakeTheTake`;
+  const tweetHref = `https://twitter.com/intent/tweet?text=${encodeURIComponent(tweetText)}`;
+
   return (
 	<div style={{ marginTop: '1rem' }}>
 	  <h3>Thanks!</h3>
 	  <p>Your take was logged successfully.</p>
-	  {takeID && (
-		<p>
-		  <a href={`/takes/${takeID}`} target="_blank" rel="noreferrer">
-			View your new take here
-		  </a>
-		</p>
-	  )}
+	  <p>
+		<a href={`/takes/${takeID}`} target="_blank" rel="noreferrer">
+		  View your new take here
+		</a>
+	  </p>
+	  <p>
+		<a
+		  href={tweetHref}
+		  target="_blank"
+		  rel="noreferrer"
+		  style={{ color: '#1DA1F2', textDecoration: 'underline' }}
+		>
+		  Tweet this take
+		</a>
+	  </p>
 	</div>
   );
 }
@@ -385,8 +410,8 @@ export default function VerificationWidget({ embeddedPropID }) {
 	  finalPropID = params.get('propID') || 'defaultProp';
 	}
 	fetch(`/api/prop?propID=${finalPropID}`)
-	  .then(res => res.json())
-	  .then(data => {
+	  .then((res) => res.json())
+	  .then((data) => {
 		setPropData(data);
 		setLoading(false);
 		if (data.success) {
@@ -395,7 +420,7 @@ export default function VerificationWidget({ embeddedPropID }) {
 		}
 		setLastUpdated(new Date());
 	  })
-	  .catch(err => {
+	  .catch((err) => {
 		console.error('[VerificationWidget] Error fetching prop:', err);
 		setLoading(false);
 	  });
@@ -405,14 +430,16 @@ export default function VerificationWidget({ embeddedPropID }) {
   useEffect(() => {
 	if (loggedInUser?.profileID) {
 	  fetch(`/api/profile/${loggedInUser.profileID}`)
-		.then(res => res.json())
-		.then(data => {
+		.then((res) => res.json())
+		.then((data) => {
 		  if (data.success && data.userTakes) {
 			setUserTakes(data.userTakes);
 			setLastUpdated(new Date());
 		  }
 		})
-		.catch(err => console.error('[VerificationWidget] /api/profile error:', err));
+		.catch((err) =>
+		  console.error('[VerificationWidget] /api/profile error:', err)
+		);
 	}
   }, [loggedInUser]);
 
@@ -420,7 +447,7 @@ export default function VerificationWidget({ embeddedPropID }) {
   useEffect(() => {
 	if (!propData?.propID) return;
 	const latestTake = userTakes.find(
-	  t => t.propID === propData.propID && t.takeStatus === 'latest'
+	  (t) => t.propID === propData.propID && t.takeStatus === 'latest'
 	);
 	if (latestTake) {
 	  setAlreadyTookTakeID(latestTake.takeID);
@@ -432,7 +459,6 @@ export default function VerificationWidget({ embeddedPropID }) {
 	// After the user actually creates/verifies a take
 	setTakeID(newTakeID);
 	if (freshData && freshData.success) {
-	  // Use the newly returned side counts from /api/take
 	  setSideACount(freshData.sideACount || 0);
 	  setSideBCount(freshData.sideBCount || 0);
 	}
@@ -441,14 +467,13 @@ export default function VerificationWidget({ embeddedPropID }) {
   }
 
   // Open scenario user picks side => we do not increment or change the local counts.
-  // We only set resultsRevealed to show the distribution (or you can remove that if not needed).
   function handleSelectChoice(choiceValue) {
 	if (choiceValue === selectedChoice) {
 	  setSelectedChoice('');
 	  setResultsRevealed(false);
 	} else {
 	  setSelectedChoice(choiceValue);
-	  setResultsRevealed(true); // we show the existing distribution, but do NOT increment locally
+	  setResultsRevealed(true); // we show the existing distribution
 	}
   }
 
@@ -456,7 +481,11 @@ export default function VerificationWidget({ embeddedPropID }) {
 	return <div style={{ padding: '2rem' }}>Loading proposition...</div>;
   }
   if (!propData || propData.error) {
-	return <div style={{ padding: '2rem' }}>Prop not found or error loading prop.</div>;
+	return (
+	  <div style={{ padding: '2rem' }}>
+		Prop not found or error loading prop.
+	  </div>
+	);
   }
 
   const propStatus = propData.propStatus || 'open';
@@ -481,7 +510,6 @@ export default function VerificationWidget({ embeddedPropID }) {
 			Total Takes: {totalTakes}
 		  </p>
 
-		  {/* Last updated time (left-aligned) */}
 		  <div style={{ marginTop: '1rem', fontSize: '0.9rem', color: '#666' }}>
 			Last Updated: {lastUpdated.toLocaleString()}
 		  </div>
@@ -494,6 +522,14 @@ export default function VerificationWidget({ embeddedPropID }) {
   if (alreadyTookTakeID) {
 	const { aPct, bPct } = computeSidePercents(sideACount, sideBCount);
 	const totalTakes = sideACount + sideBCount + 2;
+
+	// Create “Tweet This Take” link for existing take
+	const takeUrl = window.location.origin + '/takes/' + alreadyTookTakeID;
+	const tweetText = `Check out my take here:\n\n${takeUrl} #MakeTheTake`;
+	const tweetHref = `https://twitter.com/intent/tweet?text=${encodeURIComponent(
+	  tweetText
+	)}`;
+
 	return (
 	  <div style={{ padding: '2rem', maxWidth: '600px', margin: '0 auto' }}>
 		<div
@@ -507,8 +543,24 @@ export default function VerificationWidget({ embeddedPropID }) {
 		  <h2 className="text-xl font-bold mb-2">{propData.propShort}</h2>
 		  <p>You’ve Already Made This Take.</p>
 		  <p>
-			<a href={`/takes/${alreadyTookTakeID}`} target="_blank" rel="noreferrer">
+			<a
+			  href={`/takes/${alreadyTookTakeID}`}
+			  target="_blank"
+			  rel="noreferrer"
+			>
 			  View your existing take here
+			</a>
+		  </p>
+
+		  {/* Tweet link for existing take */}
+		  <p>
+			<a
+			  href={tweetHref}
+			  target="_blank"
+			  rel="noreferrer"
+			  style={{ color: '#1DA1F2', textDecoration: 'underline' }}
+			>
+			  Tweet this take
 			</a>
 		  </p>
 
@@ -527,7 +579,6 @@ export default function VerificationWidget({ embeddedPropID }) {
 			sideBLabel={propData.PropSideBShort}
 		  />
 
-		  {/* Last updated time */}
 		  <div style={{ marginTop: '1rem', fontSize: '0.9rem', color: '#666' }}>
 			Last Updated: {lastUpdated.toLocaleString()}
 		  </div>
@@ -536,7 +587,7 @@ export default function VerificationWidget({ embeddedPropID }) {
 	);
   }
 
-  // If user completed => "thanks" w/ fresh data from server
+  // If user completed => "thanks"
   if (currentStep === 'complete') {
 	const freshA = sideACount;
 	const freshB = sideBCount;
@@ -573,7 +624,6 @@ export default function VerificationWidget({ embeddedPropID }) {
 			/>
 		  )}
 
-		  {/* Last updated time */}
 		  <div style={{ marginTop: '1rem', fontSize: '0.9rem', color: '#666' }}>
 			Last Updated: {lastUpdated.toLocaleString()}
 		  </div>
@@ -582,7 +632,7 @@ export default function VerificationWidget({ embeddedPropID }) {
 	);
   }
 
-  // Otherwise => normal "open" scenario (no local increment)
+  // Otherwise => normal "open" scenario
   const { aPct, bPct } = computeSidePercents(sideACount, sideBCount);
   const totalTakes = sideACount + sideBCount + 2;
 
@@ -643,7 +693,6 @@ export default function VerificationWidget({ embeddedPropID }) {
 		  </>
 		)}
 
-		{/* Last updated time */}
 		<div style={{ marginTop: '1rem', fontSize: '0.9rem', color: '#666' }}>
 		  Last Updated: {lastUpdated.toLocaleString()}
 		</div>

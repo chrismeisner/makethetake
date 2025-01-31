@@ -1,12 +1,17 @@
 // File: src/HomePage.js
+
 import React from 'react';
 import { Link } from 'react-router-dom';
+import { UserContext } from './UserContext';
 
 export default function HomePage() {
   const [propsList, setPropsList] = React.useState([]);
   const [takesByProp, setTakesByProp] = React.useState({});
   const [error, setError] = React.useState('');
   const [loading, setLoading] = React.useState(true);
+
+  // Logged-in user from context
+  const { loggedInUser } = React.useContext(UserContext);
 
   React.useEffect(() => {
 	async function loadData() {
@@ -19,7 +24,7 @@ export default function HomePage() {
 		  setLoading(false);
 		  return;
 		}
-		// Filter out archived
+		// Filter out archived props (if you want)
 		const filteredProps = (propsData.props || []).filter(
 		  (prop) => prop.propStatus !== 'archived'
 		);
@@ -37,10 +42,12 @@ export default function HomePage() {
 		// 3) Group takes by propID
 		const grouped = {};
 		(takesData.takes || []).forEach((take) => {
-		  if (!grouped[take.propID]) {
-			grouped[take.propID] = [];
+		  const pid = take.propID;
+		  if (!pid) return;
+		  if (!grouped[pid]) {
+			grouped[pid] = [];
 		  }
-		  grouped[take.propID].push(take);
+		  grouped[pid].push(take);
 		});
 		setTakesByProp(grouped);
 
@@ -72,17 +79,26 @@ export default function HomePage() {
 	  <h2 className="text-2xl font-bold mb-4">All Propositions</h2>
 
 	  <div className="space-y-6">
-		{propsList.map((p) => {
-		  const relatedTakes = takesByProp[p.propID] || [];
+		{propsList.map((prop) => {
+		  // For this prop, look up all related takes
+		  const relatedTakes = takesByProp[prop.propID] || [];
+
+		  // If user is logged in, find their single latest take by phone
+		  let userTake;
+		  if (loggedInUser) {
+			userTake = relatedTakes.find(
+			  (t) => t.takeMobile === loggedInUser.phone && t.takeStatus !== 'overwritten'
+			);
+		  }
 
 		  return (
-			<div key={p.propID} className="border p-4 rounded">
-			  {/* Top row: optional subject logo, then prop title */}
+			<div key={prop.propID} className="border p-4 rounded">
+			  {/* -- PROP HEADER -- */}
 			  <div style={{ display: 'flex', alignItems: 'center' }}>
-				{p.subjectLogoUrl && (
+				{prop.subjectLogoUrl && (
 				  <img
-					src={p.subjectLogoUrl}
-					alt={p.subjectTitle || 'Subject Logo'}
+					src={prop.subjectLogoUrl}
+					alt={prop.subjectTitle || 'Subject Logo'}
 					style={{
 					  width: '40px',
 					  height: '40px',
@@ -92,50 +108,81 @@ export default function HomePage() {
 					}}
 				  />
 				)}
-
 				<h3 className="text-xl font-semibold">
-				  {/* Link to prop detail page */}
-				  <Link to={`/props/${p.propID}`} className="text-blue-600 hover:underline">
-					{p.propTitle}
+				  <Link to={`/props/${prop.propID}`} className="text-blue-600 hover:underline">
+					{prop.propTitle}
 				  </Link>
 				</h3>
 			  </div>
 
-			  {/* Subject and Status */}
-			  {(p.subjectTitle || p.propStatus) && (
+			  {/* -- SUBJECT & STATUS -- */}
+			  {(prop.subjectTitle || prop.propStatus) && (
 				<p className="mt-1 text-sm text-gray-600">
-				  {p.subjectTitle && <>Subject: {p.subjectTitle}</>}
-				  {p.subjectTitle && p.propStatus && (
-					<span className="ml-4">Status: {p.propStatus}</span>
+				  {prop.subjectTitle && <>Subject: {prop.subjectTitle}</>}
+				  {prop.subjectTitle && prop.propStatus && (
+					<span className="ml-4">Status: {prop.propStatus}</span>
 				  )}
-				  {!p.subjectTitle && p.propStatus && (
-					<>Status: {p.propStatus}</>
-				  )}
+				  {!prop.subjectTitle && prop.propStatus && <>Status: {prop.propStatus}</>}
 				</p>
 			  )}
-
 			  <p style={{ marginTop: '0.5rem', color: '#666' }}>
-				Created: {p.createdAt}
+				Created: {prop.createdAt}
 			  </p>
 
-			  <p className="mt-2">{p.propSummary}</p>
+			  {/* -- PROP SUMMARY -- */}
+			  <p className="mt-2">{prop.propSummary}</p>
 
-			  {/* "Make The Take:" line */}
+			  {/* -- "MAKE THE TAKE" LONG TEXT -- */}
 			  <p className="mt-2 text-sm font-semibold">Make The Take:</p>
 			  <p>
-				<Link to={`/props/${p.propID}`} className="text-blue-600 hover:underline">
-				  {p.propLong}
+				<Link to={`/props/${prop.propID}`} className="text-blue-600 hover:underline">
+				  {prop.propLong}
 				</Link>
 			  </p>
 
-			  {/* Show related content, if any */}
-			  {p.content && p.content.length > 0 && (
+			  {/* -- USER'S TAKE STATUS -- */}
+			  <div style={{ marginTop: '1rem' }}>
+				<p className="text-sm font-semibold">Your Take:</p>
+
+				{!loggedInUser ? (
+				  <p className="text-gray-600">
+					<Link to="/login?redirect=/" className="text-blue-600 underline">
+					  Log in
+					</Link>{' '}
+					to see your take.
+				  </p>
+				) : userTake ? (
+				  (() => {
+					// Determine which side label to show
+					const sideLabel =
+					  userTake.propSide === 'A'
+						? (userTake.propSideAShort || 'Side A')
+						: (userTake.propSideBShort || 'Side B');
+
+					return (
+					  <p>
+						<Link
+						  to={`/takes/${userTake.TakeID || userTake.takeID}`}
+						  className="text-blue-600 hover:underline"
+						>
+						  {sideLabel}
+						</Link>
+					  </p>
+					);
+				  })()
+				) : (
+				  <p className="text-gray-600">You haven’t made this take yet.</p>
+				)}
+			  </div>
+
+			  {/* -- OPTIONAL: RELATED LINKS -- */}
+			  {prop.content && prop.content.length > 0 && (
 				<div style={{ marginTop: '1rem' }}>
 				  <p className="text-sm font-semibold">Related Links:</p>
 				  <ul style={{ margin: 0, padding: 0, listStyle: 'none' }}>
-					{p.content.map((cItem, idx) => (
+					{prop.content.map((cItem, idx) => (
 					  <li key={idx} style={{ margin: '0.25rem 0' }}>
-						<span style={{ marginRight: '4px' }}>↗</span>
+						↗{' '}
 						<a
 						  href={cItem.contentURL}
 						  target="_blank"
@@ -149,36 +196,6 @@ export default function HomePage() {
 				  </ul>
 				</div>
 			  )}
-
-			  {/* Display user takes (with short label) */}
-			  <div style={{ marginTop: '1rem' }}>
-				<p className="text-sm font-semibold">User Takes:</p>
-				{relatedTakes.length === 0 ? (
-				  <p className="text-gray-600">No user takes yet.</p>
-				) : (
-				  <ul style={{ margin: '0.25rem 0', paddingLeft: '1rem' }}>
-					{relatedTakes.map((take) => {
-					  // Decide which side label to show
-					  const sideLabel =
-						take.propSide === 'A'
-						  ? p.PropSideAShort || 'Side A'
-						  : p.PropSideBShort || 'Side B';
-
-					  return (
-						<li key={take.takeID} style={{ marginBottom: '0.25rem' }}>
-						  {/* The side label is the clickable link to this Take */}
-						  <Link
-							to={`/takes/${take.takeID}`}
-							className="text-blue-600 hover:underline"
-						  >
-							{sideLabel}
-						  </Link>
-						</li>
-					  );
-					})}
-				  </ul>
-				)}
-			  </div>
 			</div>
 		  );
 		})}
