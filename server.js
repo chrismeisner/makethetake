@@ -1,5 +1,3 @@
-// File: server.js
-
 require('dotenv').config();
 const path = require('path');
 const express = require('express');
@@ -18,6 +16,16 @@ const twilioClient = twilio(
   process.env.TWILIO_ACCOUNT_SID,
   process.env.TWILIO_AUTH_TOKEN
 );
+
+// Debug logs: confirm environment variables
+console.log('TWILIO_ACCOUNT_SID:', process.env.TWILIO_ACCOUNT_SID);
+console.log('TWILIO_AUTH_TOKEN:', process.env.TWILIO_AUTH_TOKEN);
+console.log('APP_URL:', process.env.APP_URL);
+
+twilioClient.api.accounts(process.env.TWILIO_ACCOUNT_SID)
+  .fetch()
+  .then(account => console.log('Fetched account friendlyName:', account.friendlyName))
+  .catch(err => console.error('Failed to fetch account:', err));
 
 Airtable.configure({
   apiKey: process.env.AIRTABLE_API_KEY,
@@ -54,14 +62,11 @@ function generateRandomProfileID(length = 8) {
 
 // --------------------------------------
 // 2) Helper: ensureProfileRecord(phoneE164)
-//    - Correctly uses a string filter for Airtable
 // --------------------------------------
 async function ensureProfileRecord(phoneE164) {
   console.log('[ensureProfileRecord] Checking phone:', phoneE164);
 
-  // IMPORTANT: Must be a string formula:
   const filterByFormula = `{profileMobile} = "${phoneE164}"`;
-
   const found = await base('Profiles')
 	.select({
 	  filterByFormula,
@@ -317,8 +322,11 @@ app.post('/api/take', async (req, res) => {
 		.status(404)
 		.json({ error: `No prop found for propID=${propID}` });
 	}
+
 	const propRec = propsFound[0];
+	const propAirtableID = propRec.id; // for linking to the Props table
 	const propStatus = propRec.fields.propStatus || 'open';
+
 	if (propStatus !== 'open') {
 	  return res
 		.status(400)
@@ -354,7 +362,7 @@ app.post('/api/take', async (req, res) => {
 	// 4) Ensure profile
 	const profile = await ensureProfileRecord(e164);
 
-	// 5) Mark older takes overwritten
+	// 5) Mark older takes as overwritten (we do NOT set takePTS, since it's now a formula)
 	const existingMatches = await base('Takes')
 	  .select({
 		filterByFormula: `AND({propID}="${propID}", {takeMobile}="${e164}")`,
@@ -365,7 +373,10 @@ app.post('/api/take', async (req, res) => {
 	if (existingMatches.length > 0) {
 	  const updates = existingMatches.map((rec) => ({
 		id: rec.id,
-		fields: { takeStatus: 'overwritten' },
+		fields: {
+		  takeStatus: 'overwritten',
+		  // remove any direct takePTS setting
+		},
 	  }));
 	  await base('Takes').update(updates);
 	}
@@ -380,6 +391,8 @@ app.post('/api/take', async (req, res) => {
 		  takePopularity,
 		  Profile: [profile.airtableId],
 		  takeStatus: 'latest',
+		  // remove any direct takePTS setting
+		  Prop: [propAirtableID], // link to the prop if needed
 		},
 	  },
 	]);
@@ -406,7 +419,7 @@ app.post('/api/take', async (req, res) => {
 	  sideBCount: newSideBCount,
 	});
 
-	// 9) Optional SMS
+	// 9) Optional SMS confirmation
 	try {
 	  await twilioClient.messages.create({
 		to: e164,
@@ -522,6 +535,7 @@ app.get('/api/takes/:takeID', async (req, res) => {
 // --------------------------------------
 app.get('/api/leaderboard', async (req, res) => {
   try {
+	// 1) Load all Profiles => map phone => profileID
 	const allProfiles = await base('Profiles').select({ maxRecords: 5000 }).all();
 	const phoneToProfileID = new Map();
 	for (const p of allProfiles) {
@@ -531,20 +545,37 @@ app.get('/api/leaderboard', async (req, res) => {
 	  }
 	}
 
-	const allTakes = await base('Takes').select({ maxRecords: 5000 }).all();
-	const countsMap = new Map();
+	// 2) Load all Takes, but exclude ones with {takeStatus} = "overwritten"
+	const allTakes = await base('Takes')
+	  .select({
+		maxRecords: 5000,
+		filterByFormula: `{takeStatus} != "overwritten"`,
+	  })
+	  .all();
+
+	// 3) Track both the count of takes and the sum of takePTS
+	const phoneStats = new Map();
+
 	for (const t of allTakes) {
 	  const ph = t.fields.takeMobile || 'Unknown';
-	  countsMap.set(ph, (countsMap.get(ph) || 0) + 1);
+	  const pts = t.fields.takePTS || 0;
+	  const current = phoneStats.get(ph) || { takes: 0, points: 0 };
+
+	  current.takes += 1;
+	  current.points += pts;
+
+	  phoneStats.set(ph, current);
 	}
 
-	const leaderboard = Array.from(countsMap.entries())
-	  .map(([phone, count]) => ({
+	// 4) Build final leaderboard array => sort by points desc
+	const leaderboard = Array.from(phoneStats.entries())
+	  .map(([phone, stats]) => ({
 		phone,
-		count,
+		count: stats.takes,
+		points: stats.points,
 		profileID: phoneToProfileID.get(phone) || null,
 	  }))
-	  .sort((a, b) => b.count - a.count);
+	  .sort((a, b) => b.points - a.points);
 
 	res.json({ success: true, leaderboard });
   } catch (err) {
@@ -561,6 +592,7 @@ app.get('/api/profile/:profileID', async (req, res) => {
   console.log(`[GET /api/profile/${profileID}] Starting lookup...`);
 
   try {
+	// 1) Find the single matching profile
 	const found = await base('Profiles')
 	  .select({
 		filterByFormula: `{profileID}='${profileID}'`,
@@ -575,9 +607,9 @@ app.get('/api/profile/:profileID', async (req, res) => {
 	const profRec = found[0];
 	const pf = profRec.fields;
 
+	// 2) Build a filter to fetch all relevant Takes
 	let userTakes = [];
 	if (Array.isArray(pf.Takes) && pf.Takes.length > 0) {
-	  // Build a filter to fetch all relevant takes
 	  const filterByFormula = `OR(${pf.Takes.map(
 		(id) => `RECORD_ID() = '${id}'`
 	  ).join(',')})`;
@@ -586,20 +618,41 @@ app.get('/api/profile/:profileID', async (req, res) => {
 		.select({ filterByFormula, maxRecords: 5000 })
 		.all();
 
-	  userTakes = takeRecords.map((t) => {
-		const tf = t.fields;
-		return {
-		  airtableRecordId: t.id,
-		  takeID: tf.TakeID || t.id,
-		  propID: tf.propID || '',
-		  propSide: tf.propSide || null,
-		  takePopularity: tf.takePopularity || 0,
-		  createdTime: t._rawJson.createdTime,
-		  takeStatus: tf.takeStatus || '',
-		};
-	  });
+	  // 3) Map the take data, skip any with takeStatus="overwritten"
+	  userTakes = takeRecords
+		.filter((t) => t.fields.takeStatus !== 'overwritten')
+		.map((t) => {
+		  const tf = t.fields;
+
+		  // Derive a side label if needed
+		  let sideLabel = '';
+		  if (tf.propSide === 'A') {
+			sideLabel = tf.propSideAShort || 'Side A';
+		  } else if (tf.propSide === 'B') {
+			sideLabel = tf.propSideBShort || 'Side B';
+		  }
+
+		  let contentImageUrl = '';
+		  if (Array.isArray(tf.contentImage) && tf.contentImage.length > 0) {
+			contentImageUrl = tf.contentImage[0].url;
+		  }
+
+		  return {
+			airtableRecordId: t.id,
+			takeID: tf.TakeID || t.id,
+			propID: tf.propID || '',
+			propSide: tf.propSide || null,
+			sideLabel,
+			propTitle: tf.propTitle || '',
+			contentImageUrl,
+			takePopularity: tf.takePopularity || 0,
+			createdTime: t._rawJson.createdTime,
+			takeStatus: tf.takeStatus || '',
+		  };
+		});
 	}
 
+	// 4) Prepare the final profile object
 	const profileData = {
 	  airtableRecordId: profRec.id,
 	  profileID: pf.profileID,
@@ -608,6 +661,7 @@ app.get('/api/profile/:profileID', async (req, res) => {
 	  createdTime: profRec._rawJson.createdTime,
 	};
 
+	// 5) Return the JSON
 	res.json({
 	  success: true,
 	  profile: profileData,
@@ -654,8 +708,50 @@ app.get('/api/feed', async (req, res) => {
 });
 
 // --------------------------------------
-// 10) GET /api/props
+// 9.5) GET /api/takes (NEW ENDPOINT)
 // --------------------------------------
+app.get('/api/takes', async (req, res) => {
+  try {
+	// Grab records from the Airtable "Takes" table
+	const takeRecords = await base('Takes')
+	  .select({
+		// Optionally filter out overwritten takes:
+		filterByFormula: `{takeStatus} != "overwritten"`,
+		maxRecords: 5000, // adjust if needed
+		sort: [{ field: 'Created', direction: 'desc' }],
+	  })
+	  .all();
+
+	// Map each Airtable record into a simpler object
+	const allTakes = takeRecords.map((t) => {
+	  const f = t.fields;
+	  return {
+		takeID: f.TakeID || t.id,
+		propID: f.propID,
+		propSide: f.propSide,
+		takeStatus: f.takeStatus || '',
+		createdTime: t._rawJson.createdTime,
+		// Add any other fields you need:
+		// e.g. takePopularity: f.takePopularity || 0,
+		//     takePTS: f.takePTS || 0,
+	  };
+	});
+
+	// Send back an array of all relevant takes
+	res.json({
+	  success: true,
+	  takes: allTakes,
+	});
+  } catch (err) {
+	console.error('[GET /api/takes] Error:', err);
+	res.status(500).json({
+	  success: false,
+	  error: 'Server error fetching takes',
+	});
+  }
+});
+
+// 10) GET /api/props
 app.get('/api/props', async (req, res) => {
   try {
 	const propsRecords = await base('Props')
@@ -756,6 +852,10 @@ app.get('/api/props', async (req, res) => {
 		propStatus: f.propStatus || 'open',
 		createdAt,
 
+		// ADD THESE TWO LINES:
+		PropSideAShort: f.PropSideAShort || 'Side A',
+		PropSideBShort: f.PropSideBShort || 'Side B',
+
 		subjectID: subID,
 		subjectTitle,
 		subjectLogoUrl,
@@ -769,6 +869,7 @@ app.get('/api/props', async (req, res) => {
 	return res.status(500).json({ success: false, error: 'Server error fetching props' });
   }
 });
+
 
 // --------------------------------------
 // 11) Catch-all => serve index.html

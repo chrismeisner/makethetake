@@ -44,29 +44,26 @@ export default function LeaderboardPage() {
 		  <tr style={{ borderBottom: '1px solid #ccc' }}>
 			<th style={{ textAlign: 'left', padding: '0.5rem' }}>Phone (E.164)</th>
 			<th style={{ textAlign: 'left', padding: '0.5rem' }}>Takes Count</th>
+			<th style={{ textAlign: 'left', padding: '0.5rem' }}>Points</th>
 		  </tr>
 		</thead>
 		<tbody>
-		  {leaderboard.map((item) => {
-			// item.phone => e.g. "+16025551212"
-			// item.profileID => e.g. "abcd1234" or null if none
-			return (
-			  <tr key={item.phone} style={{ borderBottom: '1px solid #eee' }}>
-				<td style={{ padding: '0.5rem' }}>
-				  {item.profileID ? (
-					// Link to /profile/:profileID
-					<Link to={`/profile/${item.profileID}`}>
-					  {item.phone}
-					</Link>
-				  ) : (
-					// If there's no profileID, just show text
-					item.phone
-				  )}
-				</td>
-				<td style={{ padding: '0.5rem' }}>{item.count}</td>
-			  </tr>
-			);
-		  })}
+		  {leaderboard.map((item) => (
+			<tr key={item.phone} style={{ borderBottom: '1px solid #eee' }}>
+			  <td style={{ padding: '0.5rem' }}>
+				{item.profileID ? (
+				  <Link to={`/profile/${item.profileID}`}>
+					{item.phone}
+				  </Link>
+				) : (
+				  item.phone
+				)}
+			  </td>
+			  <td style={{ padding: '0.5rem' }}>{item.count}</td>
+			  {/* Round the points to 0 decimal places */}
+			  <td style={{ padding: '0.5rem' }}>{Math.round(item.points)}</td>
+			</tr>
+		  ))}
 		</tbody>
 	  </table>
 	</div>

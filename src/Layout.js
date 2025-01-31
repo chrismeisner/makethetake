@@ -1,16 +1,22 @@
 // File: src/Layout.js
 
 import React, { useContext, useEffect } from 'react';
-import { Link, Outlet } from 'react-router-dom';
+import { Link, Outlet, useLocation } from 'react-router-dom';
 import { UserContext } from './UserContext';
 
 export default function Layout() {
-  const { loggedInUser, setLoggedInUser } = useContext(UserContext);
+  const { loggedInUser } = useContext(UserContext);
+  const location = useLocation();
 
-  // Log the user context each time 'loggedInUser' changes:
+  // Log the user context each time 'loggedInUser' changes
   useEffect(() => {
 	console.log('[Layout] loggedInUser =>', loggedInUser);
   }, [loggedInUser]);
+
+  // If the user is NOT logged in, we append ?redirect=[current path]
+  // e.g. if current path is "/props/abc", then link becomes "/login?redirect=/props/abc"
+  const redirectPath = encodeURIComponent(location.pathname + location.search);
+  // ^ also includes the current query parameters if any
 
   return (
 	<div className="min-h-screen flex flex-col">
@@ -31,15 +37,15 @@ export default function Layout() {
 
 			{loggedInUser ? (
 			  // If user IS logged in => link to their profile using phone number
-			  <Link
-				to={`/profile/${loggedInUser.profileID}`}
-				className="hover:text-gray-300"
-			  >
+			  <Link to={`/profile/${loggedInUser.profileID}`} className="hover:text-gray-300">
 				{loggedInUser.phone}
 			  </Link>
 			) : (
-			  // If user is NOT logged in => show "Log in"
-			  <Link to="/login" className="hover:text-gray-300">
+			  // If user is NOT logged in => show "Log in" with ?redirect=
+			  <Link
+				to={`/login?redirect=${redirectPath}`}
+				className="hover:text-gray-300"
+			  >
 				Log in
 			  </Link>
 			)}

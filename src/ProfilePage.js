@@ -25,7 +25,15 @@ export default function ProfilePage() {
 		}
 		setProfile(data.profile);
 		setTotalTakes(data.totalTakes);
-		setUserTakes(data.userTakes || []);
+
+		// Sort the user's takes by createdTime desc (most recent first)
+		const sortedTakes = (data.userTakes || []).sort((a, b) => {
+		  const dateA = new Date(a.createdTime);
+		  const dateB = new Date(b.createdTime);
+		  return dateB - dateA; // descending
+		});
+
+		setUserTakes(sortedTakes);
 	  })
 	  .catch((err) => {
 		console.error('[ProfilePage] Error:', err);
@@ -89,7 +97,7 @@ export default function ProfilePage() {
 		</p>
 	  </div>
 
-	  {/* Logout button here (only if user is indeed the owner, or just always) */}
+	  {/* Only show the logout button if this profile belongs to the logged-in user */}
 	  {loggedInUser?.profileID === profileID && (
 		<button
 		  onClick={handleLogout}
@@ -99,7 +107,7 @@ export default function ProfilePage() {
 		</button>
 	  )}
 
-	  {/* Display the user's Takes */}
+	  {/* Display the user's Takes (sorted by date desc) */}
 	  <div className="mt-6">
 		<h3 className="text-xl font-semibold">User's Takes</h3>
 		{userTakes.length === 0 ? (
@@ -107,29 +115,63 @@ export default function ProfilePage() {
 		) : (
 		  <div className="mt-2 space-y-4">
 			{userTakes.map((take) => (
-			  <div key={take.airtableRecordId} className="border p-2 rounded">
-				<p>
-				  <strong>Take Record:</strong>{' '}
-				  {take.takeID ? (
-					<Link to={`/takes/${take.takeID}`}>
-					  {take.airtableRecordId}
-					</Link>
-				  ) : (
-					<span>{take.airtableRecordId}</span>
-				  )}
-				</p>
-				<p>
-				  <strong>Prop ID:</strong> {take.propID}
-				</p>
-				<p>
-				  <strong>Prop Side:</strong> {take.propSide}
-				</p>
-				<p>
-				  <strong>Popularity:</strong> {take.takePopularity}%
-				</p>
-				<p>
-				  <strong>Created Time:</strong> {take.createdTime}
-				</p>
+			  <div
+				key={take.airtableRecordId}
+				className="border p-2 rounded flex items-center gap-4"
+			  >
+				{take.contentImageUrl ? (
+				  <img
+					src={take.contentImageUrl}
+					alt="Take content"
+					style={{ width: '50px', height: '50px', objectFit: 'cover' }}
+					className="rounded"
+				  />
+				) : (
+				  <div
+					style={{
+					  width: 50,
+					  height: 50,
+					  backgroundColor: '#eee',
+					  display: 'flex',
+					  alignItems: 'center',
+					  justifyContent: 'center',
+					  borderRadius: 4,
+					  color: '#999',
+					}}
+				  >
+					No Img
+				  </div>
+				)}
+
+				<div>
+				  <p>
+					<strong>Take Record:</strong>{' '}
+					{take.takeID ? (
+					  <Link to={`/takes/${take.takeID}`}>
+						{take.airtableRecordId}
+					  </Link>
+					) : (
+					  <span>{take.airtableRecordId}</span>
+					)}
+				  </p>
+				  <p>
+					<strong>Prop Title:</strong>{' '}
+					{take.propTitle ? (
+					  <Link to={`/props/${take.propID}`}>{take.propTitle}</Link>
+					) : (
+					  '(No Title)'
+					)}
+				  </p>
+				  <p>
+					<strong>Side:</strong> {take.sideLabel || take.propSide}
+				  </p>
+				  <p>
+					<strong>Popularity:</strong> {take.takePopularity}%
+				  </p>
+				  <p>
+					<strong>Created Time:</strong> {take.createdTime}
+				  </p>
+				</div>
 			  </div>
 			))}
 		  </div>

@@ -1,12 +1,18 @@
 // File: src/LoginPage.js
 
 import React, { useState, useContext } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { UserContext } from './UserContext';
 
 export default function LoginPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { setLoggedInUser } = useContext(UserContext);
+
+  // 1) Grab ?redirect=... from the query string if present
+  const searchParams = new URLSearchParams(location.search);
+  const redirectPath = searchParams.get('redirect') || null;
+  console.log('[LoginPage] Reading redirect param:', redirectPath);
 
   const [step, setStep] = useState('phone'); // "phone" or "code"
   const [phone, setPhone] = useState('');
@@ -14,7 +20,7 @@ export default function LoginPage() {
   const [error, setError] = useState('');
 
   async function handleSendCode() {
-	// Basic validation: check that phone has ~10 digits
+	console.log('[LoginPage] Sending code to phone:', phone);
 	const numeric = phone.replace(/\D/g, '');
 	if (numeric.length !== 10) {
 	  setError('Please enter a valid 10-digit phone number');
@@ -36,11 +42,13 @@ export default function LoginPage() {
 		setStep('code');
 	  }
 	} catch (err) {
-	  setError('Error: ' + err.message);
+	  console.error('Error in handleSendCode:', err);
+	  setError('Could not send code. Please try again later.');
 	}
   }
 
   async function handleVerifyCode() {
+	console.log('[LoginPage] Verifying code for phone:', phone);
 	const numeric = code.replace(/\D/g, '');
 	if (numeric.length !== 6) {
 	  setError('Please enter the 6-digit code');
@@ -49,7 +57,6 @@ export default function LoginPage() {
 	setError('');
 
 	try {
-	  // Verify the code with Twilio
 	  const resp = await fetch('/api/verifyCode', {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
@@ -57,7 +64,6 @@ export default function LoginPage() {
 	  });
 	  const data = await resp.json();
 	  if (!resp.ok || data.error || !data.success) {
-		// The code was invalid or some other error
 		setError(data.error || 'Invalid verification code');
 		return;
 	  }
@@ -69,20 +75,27 @@ export default function LoginPage() {
 	  if (meData.loggedIn && meData.user) {
 		// Save to context
 		setLoggedInUser(meData.user);
-		// Redirect to the user's profile page
-		navigate(`/profile/${meData.user.profileID}`);
+
+		// 2) If we have a ?redirect=..., go there; else go to the user's profile
+		console.log('[LoginPage] Successful verify. redirectPath =>', redirectPath);
+		if (redirectPath) {
+		  navigate(redirectPath);
+		} else {
+		  navigate(`/profile/${meData.user.profileID}`);
+		}
 	  } else {
 		setError('Could not confirm login session.');
 	  }
 	} catch (err) {
-	  setError('Error: ' + err.message);
+	  console.error('Error in handleVerifyCode:', err);
+	  setError('Could not verify code. Please try again later.');
 	}
   }
 
   return (
 	<div style={{ maxWidth: '400px', margin: '2rem auto' }}>
 	  <h2 className="text-2xl font-bold mb-4">Login with Phone</h2>
-	  
+
 	  {error && (
 		<div style={{ marginBottom: '1rem', color: 'red' }}>
 		  {error}
