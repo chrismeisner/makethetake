@@ -324,7 +324,7 @@ app.post('/api/take', async (req, res) => {
 	}
 
 	const propRec = propsFound[0];
-	const propAirtableID = propRec.id; // for linking to the Props table
+	const propAirtableID = propRec.id;
 	const propStatus = propRec.fields.propStatus || 'open';
 
 	if (propStatus !== 'open') {
@@ -345,7 +345,6 @@ app.post('/api/take', async (req, res) => {
 	  if (t.fields.propSide === 'B') sideBCount++;
 	}
 
-	// compute popularity
 	const sideAwithOffset = sideACount + 1;
 	const sideBwithOffset = sideBCount + 1;
 	const total = sideAwithOffset + sideBwithOffset;
@@ -390,7 +389,6 @@ app.post('/api/take', async (req, res) => {
 		  takePopularity,
 		  Profile: [profile.airtableId],
 		  takeStatus: 'latest',
-		  // Link to the prop if needed
 		  Prop: [propAirtableID],
 		},
 	  },
@@ -530,7 +528,7 @@ app.get('/api/takes/:takeID', async (req, res) => {
 });
 
 // --------------------------------------
-// 7) GET /api/leaderboard
+// 7) GET /api/leaderboard (UPDATED to allow ?subjectID=... with includes check)
 // --------------------------------------
 app.get('/api/leaderboard', async (req, res) => {
   try {
@@ -544,17 +542,30 @@ app.get('/api/leaderboard', async (req, res) => {
 	  }
 	}
 
-	// 2) Load all Takes, but exclude ones with {takeStatus} = "overwritten"
-	const allTakes = await base('Takes')
+	// 2) Load all Takes, but exclude ones with {takeStatus} != "overwritten"
+	let allTakes = await base('Takes')
 	  .select({
 		maxRecords: 5000,
 		filterByFormula: '{takeStatus} != "overwritten"',
 	  })
 	  .all();
 
-	// 3) Track both the count of takes and the sum of takePTS
-	const phoneStats = new Map();
+	// 3) If we have ?subjectID=..., filter accordingly
+	const subjectID = req.query.subjectID || null;
+	if (subjectID) {
+	  allTakes = allTakes.filter((t) => {
+		// "propSubjectID" might be an array
+		const propSubj = t.fields.propSubjectID || [];
+		if (Array.isArray(propSubj)) {
+		  return propSubj.includes(subjectID);
+		} else {
+		  return propSubj === subjectID;
+		}
+	  });
+	}
 
+	// 4) Track the count & sum of takePTS
+	const phoneStats = new Map();
 	for (const t of allTakes) {
 	  const ph = t.fields.takeMobile || 'Unknown';
 	  const pts = t.fields.takePTS || 0;
@@ -566,7 +577,7 @@ app.get('/api/leaderboard', async (req, res) => {
 	  phoneStats.set(ph, current);
 	}
 
-	// 4) Build final leaderboard array => sort by points desc
+	// 5) Final array => sort by points desc
 	const leaderboard = Array.from(phoneStats.entries())
 	  .map(([phone, stats]) => ({
 		phone,
@@ -580,6 +591,38 @@ app.get('/api/leaderboard', async (req, res) => {
   } catch (err) {
 	console.error('[GET /api/leaderboard] Error:', err);
 	res.status(500).json({ error: 'Server error generating leaderboard' });
+  }
+});
+
+// --------------------------------------
+// 7.5) GET /api/subjectIDs (NEW route to get distinct propSubjectID values)
+// --------------------------------------
+app.get('/api/subjectIDs', async (req, res) => {
+  try {
+	// 1) Load all Takes (not overwritten)
+	const takeRecords = await base('Takes').select({
+	  filterByFormula: '{takeStatus} != "overwritten"',
+	  maxRecords: 5000,
+	}).all();
+
+	// 2) Build a set of subject IDs from propSubjectID
+	const subjectSet = new Set();
+	for (const t of takeRecords) {
+	  const subjField = t.fields.propSubjectID || [];
+	  // If it's an array, add each
+	  if (Array.isArray(subjField)) {
+		subjField.forEach((val) => subjectSet.add(val));
+	  } else if (typeof subjField === 'string') {
+		subjectSet.add(subjField);
+	  }
+	}
+
+	// 3) Convert set to array
+	const subjectIDs = Array.from(subjectSet);
+	res.json({ success: true, subjectIDs });
+  } catch (err) {
+	console.error('[GET /api/subjectIDs] Error:', err);
+	res.status(500).json({ success: false, error: 'Server error fetching subject IDs' });
   }
 });
 
@@ -707,30 +750,24 @@ app.get('/api/feed', async (req, res) => {
 });
 
 // --------------------------------------
-// 9.5) GET /api/takes (NOW RETURNS ALL FIELDS)
+// 9.5) GET /api/takes
 // --------------------------------------
 app.get('/api/takes', async (req, res) => {
   try {
-	// We'll skip the "fields" array, so Airtable sends *all* fields
 	const takeRecords = await base('Takes')
 	  .select({
 		filterByFormula: '{takeStatus} != "overwritten"',
 		maxRecords: 5000,
-		// No "fields" property => get everything
 		sort: [{ field: 'Created', direction: 'desc' }],
 	  })
 	  .all();
 
-	// For each record, just spread t.fields in case we want everything
 	const allTakes = takeRecords.map((t) => ({
-	  // All fields from Airtable:
 	  ...t.fields,
-	  // A few extra properties for convenience:
 	  airtableId: t.id,
 	  createdTime: t._rawJson.createdTime,
 	}));
 
-	// Send back an array of all relevant takes
 	res.json({
 	  success: true,
 	  takes: allTakes,

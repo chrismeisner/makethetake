@@ -2,9 +2,10 @@
 
 import React, { useContext, useState, useEffect } from 'react';
 import InputMask from 'react-input-mask';
+import { Link, useLocation } from 'react-router-dom';
 import { UserContext } from './UserContext';
 
-// A helper to compute local side percentages (with +1 offset for each side).
+// 1) Helper to compute side A/B percentages (with +1 offset)
 function computeSidePercents(aCount, bCount) {
   const aWithOffset = aCount + 1;
   const bWithOffset = bCount + 1;
@@ -14,11 +15,12 @@ function computeSidePercents(aCount, bCount) {
   return { aPct, bPct };
 }
 
-// Choice component
+// 2) Choice component (supports gradedSide => ✅/❌)
 function Choice({
   label,
   percentage,
   sideValue,
+  gradedSide,
   isSelected,
   anySideSelected,
   showResults,
@@ -34,6 +36,16 @@ function Choice({
   const fillOpacity = showResults ? (isSelected ? 1 : 0.4) : 0;
   const fillColor = `rgba(219, 234, 254, ${fillOpacity})`;
   const fillWidth = showResults ? `${percentage}%` : '0%';
+
+  // If gradedSide is "A" or "B", prepend ✅ or ❌
+  let displayedLabel = label;
+  if (gradedSide) {
+	if (sideValue === gradedSide) {
+	  displayedLabel = '✅ ' + label;
+	} else {
+	  displayedLabel = '❌ ' + label;
+	}
+  }
 
   return (
 	<div
@@ -54,7 +66,7 @@ function Choice({
 		transition: 'border-color 0.2s ease'
 	  }}
 	>
-	  {/* The fill background for showing the percentage bar */}
+	  {/* Fill bar for percentages */}
 	  <div
 		style={{
 		  position: 'absolute',
@@ -68,16 +80,17 @@ function Choice({
 		}}
 	  />
 	  <div style={{ position: 'relative', zIndex: 1 }}>
-		<span>{label}</span>
+		<span>{displayedLabel}</span>
 		{showResults && <span style={{ marginLeft: 6 }}>({percentage}%)</span>}
 	  </div>
 	</div>
   );
 }
 
-// PropChoices component
+// 3) PropChoices (pass gradedSide if needed)
 function PropChoices({
   propStatus,
+  gradedSide = '',
   selectedChoice,
   resultsRevealed,
   onSelectChoice,
@@ -91,6 +104,7 @@ function PropChoices({
 	{ value: 'A', label: sideALabel, percentage: sideAPct },
 	{ value: 'B', label: sideBLabel, percentage: sideBPct }
   ];
+
   return (
 	<div style={{ marginBottom: '1rem' }}>
 	  {choices.map((choice) => {
@@ -99,8 +113,9 @@ function PropChoices({
 		  <Choice
 			key={choice.value}
 			label={choice.label}
-			percentage={choice.percentage}
 			sideValue={choice.value}
+			percentage={choice.percentage}
+			gradedSide={gradedSide}
 			isSelected={isSelected}
 			anySideSelected={anySideSelected}
 			showResults={resultsRevealed}
@@ -113,7 +128,7 @@ function PropChoices({
   );
 }
 
-// PhoneNumberForm
+// 4) PhoneNumberForm
 function PhoneNumberForm({ phoneNumber, onSubmit, selectedChoice }) {
   const [localPhone, setLocalPhone] = useState(phoneNumber);
   const numericPhone = localPhone.replace(/\D/g, '');
@@ -152,11 +167,8 @@ function PhoneNumberForm({ phoneNumber, onSubmit, selectedChoice }) {
 		  {() => (
 			<input
 			  type="tel"
-			  placeholder="(602) 380-2794"
-			  style={{
-				flex: 1,
-				backgroundColor: '#f5f5f5'
-			  }}
+			  placeholder="(555) 555-1234"
+			  style={{ flex: 1, backgroundColor: '#f5f5f5' }}
 			/>
 		  )}
 		</InputMask>
@@ -176,10 +188,10 @@ function PhoneNumberForm({ phoneNumber, onSubmit, selectedChoice }) {
   );
 }
 
-// VerificationForm
+// 5) VerificationForm
 function VerificationForm({ phoneNumber, selectedChoice, propID, onComplete }) {
   const [localCode, setLocalCode] = useState('');
-  const { setLoggedInUser } = React.useContext(UserContext);
+  const { setLoggedInUser } = useContext(UserContext);
 
   async function handleVerify() {
 	const numeric = localCode.replace(/\D/g, '');
@@ -203,6 +215,7 @@ function VerificationForm({ phoneNumber, selectedChoice, propID, onComplete }) {
 	  if (meData.loggedIn && meData.user) {
 		setLoggedInUser(meData.user);
 	  }
+
 	  const takeBody = {
 		takeMobile: phoneNumber,
 		propID,
@@ -252,10 +265,7 @@ function VerificationForm({ phoneNumber, selectedChoice, propID, onComplete }) {
 			<input
 			  type="tel"
 			  placeholder="123456"
-			  style={{
-				flex: 1,
-				backgroundColor: '#f5f5f5'
-			  }}
+			  style={{ flex: 1, backgroundColor: '#f5f5f5' }}
 			/>
 		  )}
 		</InputMask>
@@ -276,7 +286,7 @@ function VerificationForm({ phoneNumber, selectedChoice, propID, onComplete }) {
   );
 }
 
-// MakeTakeButton
+// 6) MakeTakeButton
 function MakeTakeButton({ selectedChoice, propID, onTakeComplete, loggedInUser }) {
   const [confirming, setConfirming] = useState(false);
   const disabled = !selectedChoice;
@@ -343,16 +353,12 @@ function MakeTakeButton({ selectedChoice, propID, onTakeComplete, loggedInUser }
   );
 }
 
-// CompleteStep for newly created take
+// 7) CompleteStep
 function CompleteStep({ takeID }) {
   if (!takeID) {
 	return null;
   }
-
-  // The URL to the newly created take
   const takeUrl = window.location.origin + '/takes/' + takeID;
-
-  // We'll embed the takeUrl in a tweet
   const tweetText = `I just made my take! Check it out:\n\n${takeUrl} #MakeTheTake`;
   const tweetHref = `https://twitter.com/intent/tweet?text=${encodeURIComponent(tweetText)}`;
 
@@ -379,8 +385,13 @@ function CompleteStep({ takeID }) {
   );
 }
 
+// 8) Main VerificationWidget
 export default function VerificationWidget({ embeddedPropID }) {
   const { loggedInUser } = useContext(UserContext);
+
+  // For building ?redirect=...
+  const location = useLocation();
+  const redirectPath = encodeURIComponent(location.pathname + location.search);
 
   const [currentStep, setCurrentStep] = useState('phone');
   const [phoneNumber, setPhoneNumber] = useState('');
@@ -390,19 +401,16 @@ export default function VerificationWidget({ embeddedPropID }) {
   const [loading, setLoading] = useState(true);
   const [takeID, setTakeID] = useState(null);
 
-  // side counts from the server
   const [sideACount, setSideACount] = useState(0);
   const [sideBCount, setSideBCount] = useState(0);
 
-  // track user's existing “latest” take
   const [userTakes, setUserTakes] = useState([]);
   const [alreadyTookTakeID, setAlreadyTookTakeID] = useState(null);
   const [alreadyTookSide, setAlreadyTookSide] = useState(null);
 
-  // "Last Updated" time stamp
   const [lastUpdated, setLastUpdated] = useState(new Date());
 
-  // 1) Load the prop data once
+  // (1) Load the prop data
   useEffect(() => {
 	let finalPropID = embeddedPropID;
 	if (!finalPropID) {
@@ -426,7 +434,7 @@ export default function VerificationWidget({ embeddedPropID }) {
 	  });
   }, [embeddedPropID]);
 
-  // 2) If user is logged in => fetch /api/profile => userTakes
+  // (2) If user is logged in => fetch their profile => userTakes
   useEffect(() => {
 	if (loggedInUser?.profileID) {
 	  fetch(`/api/profile/${loggedInUser.profileID}`)
@@ -437,13 +445,13 @@ export default function VerificationWidget({ embeddedPropID }) {
 			setLastUpdated(new Date());
 		  }
 		})
-		.catch((err) =>
-		  console.error('[VerificationWidget] /api/profile error:', err)
-		);
+		.catch((err) => {
+		  console.error('[VerificationWidget] /api/profile error:', err);
+		});
 	}
   }, [loggedInUser]);
 
-  // 3) Pick the “latest” take for this user + prop
+  // (3) Check if user has a "latest" take on this prop
   useEffect(() => {
 	if (!propData?.propID) return;
 	const latestTake = userTakes.find(
@@ -456,7 +464,6 @@ export default function VerificationWidget({ embeddedPropID }) {
   }, [propData, userTakes]);
 
   function handleComplete(newTakeID, freshData) {
-	// After the user actually creates/verifies a take
 	setTakeID(newTakeID);
 	if (freshData && freshData.success) {
 	  setSideACount(freshData.sideACount || 0);
@@ -466,14 +473,13 @@ export default function VerificationWidget({ embeddedPropID }) {
 	setCurrentStep('complete');
   }
 
-  // Open scenario user picks side => we do not increment or change the local counts.
   function handleSelectChoice(choiceValue) {
 	if (choiceValue === selectedChoice) {
 	  setSelectedChoice('');
 	  setResultsRevealed(false);
 	} else {
 	  setSelectedChoice(choiceValue);
-	  setResultsRevealed(true); // we show the existing distribution
+	  setResultsRevealed(true);
 	}
   }
 
@@ -481,54 +487,34 @@ export default function VerificationWidget({ embeddedPropID }) {
 	return <div style={{ padding: '2rem' }}>Loading proposition...</div>;
   }
   if (!propData || propData.error) {
-	return (
-	  <div style={{ padding: '2rem' }}>
-		Prop not found or error loading prop.
-	  </div>
-	);
+	return <div style={{ padding: '2rem' }}>Prop not found or error loading prop.</div>;
   }
 
   const propStatus = propData.propStatus || 'open';
+  const { aPct, bPct } = computeSidePercents(sideACount, sideBCount);
+  const totalTakes = sideACount + sideBCount + 2;
 
-  // If prop closed => no voting
-  if (propStatus !== 'open') {
-	const totalTakes = sideACount + sideBCount + 2;
-	return (
-	  <div style={{ padding: '2rem', maxWidth: '600px', margin: '0 auto' }}>
-		<div
-		  style={{
-			backgroundColor: '#fff',
-			boxShadow: '0 2px 6px rgba(0,0,0,0.1)',
-			borderRadius: '8px',
-			padding: '1.5rem'
-		  }}
-		>
-		  <h2 className="text-xl font-bold mb-2">{propData.propShort}</h2>
-		  <p>This prop is '{propStatus}'. You cannot vote anymore.</p>
+  // Non-open scenario (graded, closed, etc.) but not after new take
+  if (propStatus !== 'open' && currentStep !== 'complete') {
+	let gradedSide = '';
+	if (propStatus === 'gradedA') {
+	  gradedSide = 'A';
+	} else if (propStatus === 'gradedB') {
+	  gradedSide = 'B';
+	}
 
-		  <p style={{ marginTop: '1rem', fontWeight: 'bold' }}>
-			Total Takes: {totalTakes}
-		  </p>
+	let userSide = '';
+	let userTakeLink = null;
+	if (alreadyTookTakeID) {
+	  userSide = alreadyTookSide;
+	  userTakeLink = `${window.location.origin}/takes/${alreadyTookTakeID}`;
+	}
 
-		  <div style={{ marginTop: '1rem', fontSize: '0.9rem', color: '#666' }}>
-			Last Updated: {lastUpdated.toLocaleString()}
-		  </div>
-		</div>
-	  </div>
-	);
-  }
-
-  // If user already made a "latest" take => show read-only distribution
-  if (alreadyTookTakeID) {
-	const { aPct, bPct } = computeSidePercents(sideACount, sideBCount);
-	const totalTakes = sideACount + sideBCount + 2;
-
-	// Create “Tweet This Take” link for existing take
-	const takeUrl = window.location.origin + '/takes/' + alreadyTookTakeID;
-	const tweetText = `Check out my take here:\n\n${takeUrl} #MakeTheTake`;
-	const tweetHref = `https://twitter.com/intent/tweet?text=${encodeURIComponent(
-	  tweetText
-	)}`;
+	let tweetHref = null;
+	if (userTakeLink) {
+	  const tweetText = `Check out my take here:\n\n${userTakeLink} #MakeTheTake`;
+	  tweetHref = `https://twitter.com/intent/tweet?text=${encodeURIComponent(tweetText)}`;
+	}
 
 	return (
 	  <div style={{ padding: '2rem', maxWidth: '600px', margin: '0 auto' }}>
@@ -540,37 +526,43 @@ export default function VerificationWidget({ embeddedPropID }) {
 			padding: '1.5rem'
 		  }}
 		>
-		  <h2 className="text-xl font-bold mb-2">{propData.propShort}</h2>
-		  <p>You’ve Already Made This Take.</p>
+		  <h2 className="text-xl font-bold mb-2">
+			<Link to={`/props/${propData.propID}`} className="text-blue-600 hover:underline">
+			  {propData.propShort}
+			</Link>
+		  </h2>
 		  <p>
-			<a
-			  href={`/takes/${alreadyTookTakeID}`}
-			  target="_blank"
-			  rel="noreferrer"
-			>
-			  View your existing take here
-			</a>
+			This prop is '{propStatus}'. No more voting. Here are the final results:
 		  </p>
 
-		  {/* Tweet link for existing take */}
-		  <p>
-			<a
-			  href={tweetHref}
-			  target="_blank"
-			  rel="noreferrer"
-			  style={{ color: '#1DA1F2', textDecoration: 'underline' }}
-			>
-			  Tweet this take
-			</a>
-		  </p>
+		  {alreadyTookTakeID && (
+			<>
+			  <p style={{ marginTop: '0.5rem' }}>
+				You’ve already made this take.{' '}
+				<a href={`/takes/${alreadyTookTakeID}`} target="_blank" rel="noreferrer">
+				  View your take here
+				</a>.
+			  </p>
+			  {tweetHref && (
+				<p>
+				  <a
+					href={tweetHref}
+					target="_blank"
+					rel="noreferrer"
+					style={{ color: '#1DA1F2', textDecoration: 'underline' }}
+				  >
+					Tweet this take
+				  </a>
+				</p>
+			  )}
+			</>
+		  )}
 
-		  <p style={{ marginTop: '1rem', fontWeight: 'bold' }}>
-			Total Takes: {totalTakes}
-		  </p>
-
+		  <p style={{ marginTop: '1rem', fontWeight: 'bold' }}>Total Takes: {totalTakes}</p>
 		  <PropChoices
-			propStatus="alreadyTook"
-			selectedChoice={alreadyTookSide}
+			propStatus="graded"
+			gradedSide={gradedSide}
+			selectedChoice={userSide}
 			resultsRevealed={true}
 			onSelectChoice={() => {}}
 			sideAPct={aPct}
@@ -579,49 +571,17 @@ export default function VerificationWidget({ embeddedPropID }) {
 			sideBLabel={propData.PropSideBShort}
 		  />
 
-		  <div style={{ marginTop: '1rem', fontSize: '0.9rem', color: '#666' }}>
-			Last Updated: {lastUpdated.toLocaleString()}
-		  </div>
-		</div>
-	  </div>
-	);
-  }
-
-  // If user completed => "thanks"
-  if (currentStep === 'complete') {
-	const freshA = sideACount;
-	const freshB = sideBCount;
-	const { aPct, bPct } = computeSidePercents(freshA, freshB);
-	const totalTakes = freshA + freshB + 2;
-
-	return (
-	  <div style={{ padding: '2rem', maxWidth: '600px', margin: '0 auto' }}>
-		<div
-		  style={{
-			backgroundColor: '#fff',
-			boxShadow: '0 2px 6px rgba(0,0,0,0.1)',
-			borderRadius: '8px',
-			padding: '1.5rem'
-		  }}
-		>
-		  <h2 className="text-xl font-bold mb-2">{propData.propShort}</h2>
-		  <CompleteStep takeID={takeID} />
-
-		  <p style={{ marginTop: '1rem', fontWeight: 'bold' }}>
-			Total Takes: {totalTakes}
-		  </p>
-
-		  {selectedChoice && (
-			<PropChoices
-			  propStatus="alreadyTook"
-			  selectedChoice={selectedChoice}
-			  resultsRevealed={true}
-			  onSelectChoice={() => {}}
-			  sideAPct={aPct}
-			  sideBPct={bPct}
-			  sideALabel={propData.PropSideAShort}
-			  sideBLabel={propData.PropSideBShort}
-			/>
+		  {/* If not logged in => show link to log in with ?redirect=... */}
+		  {!loggedInUser && (
+			<p style={{ marginTop: '1rem', fontSize: '0.9rem' }}>
+			  Already made this take?{' '}
+			  <Link
+				to={`/login?redirect=${redirectPath}`}
+				className="text-blue-600 underline"
+			  >
+				Log in to see it
+			  </Link>
+			</p>
 		  )}
 
 		  <div style={{ marginTop: '1rem', fontSize: '0.9rem', color: '#666' }}>
@@ -632,10 +592,133 @@ export default function VerificationWidget({ embeddedPropID }) {
 	);
   }
 
-  // Otherwise => normal "open" scenario
-  const { aPct, bPct } = computeSidePercents(sideACount, sideBCount);
-  const totalTakes = sideACount + sideBCount + 2;
+  // If user already took a "latest" take in open scenario
+  if (alreadyTookTakeID && currentStep !== 'complete') {
+	const { aPct: existingA, bPct: existingB } = computeSidePercents(sideACount, sideBCount);
+	const existingTotal = sideACount + sideBCount + 2;
+	const takeUrl = window.location.origin + '/takes/' + alreadyTookTakeID;
+	const tweetText = `Check out my take here:\n\n${takeUrl} #MakeTheTake`;
+	const tweetHref = `https://twitter.com/intent/tweet?text=${encodeURIComponent(tweetText)}`;
 
+	return (
+	  <div style={{ padding: '2rem', maxWidth: '600px', margin: '0 auto' }}>
+		<div
+		  style={{
+			backgroundColor: '#fff',
+			boxShadow: '0 2px 6px rgba(0,0,0,0.1)',
+			borderRadius: '8px',
+			padding: '1.5rem'
+		  }}
+		>
+		  <h2 className="text-xl font-bold mb-2">
+			<Link to={`/props/${propData.propID}`} className="text-blue-600 hover:underline">
+			  {propData.propShort}
+			</Link>
+		  </h2>
+		  <p>You’ve Already Made This Take.</p>
+		  <p>
+			<a href={`/takes/${alreadyTookTakeID}`} target="_blank" rel="noreferrer">
+			  View your existing take here
+			</a>
+		  </p>
+		  <p>
+			<a
+			  href={tweetHref}
+			  target="_blank"
+			  rel="noreferrer"
+			  style={{ color: '#1DA1F2', textDecoration: 'underline' }}
+			>
+			  Tweet this take
+			</a>
+		  </p>
+		  <p style={{ marginTop: '1rem', fontWeight: 'bold' }}>
+			Total Takes: {existingTotal}
+		  </p>
+		  <PropChoices
+			propStatus="alreadyTook"
+			gradedSide=""
+			selectedChoice={alreadyTookSide}
+			resultsRevealed={true}
+			onSelectChoice={() => {}}
+			sideAPct={existingA}
+			sideBPct={existingB}
+			sideALabel={propData.PropSideAShort}
+			sideBLabel={propData.PropSideBShort}
+		  />
+
+		  {!loggedInUser && (
+			<p style={{ marginTop: '1rem', fontSize: '0.9rem' }}>
+			  Already made this take?{' '}
+			  <Link to={`/login?redirect=${redirectPath}`} className="text-blue-600 underline">
+				Log in to see it
+			  </Link>
+			</p>
+		  )}
+
+		  <div style={{ marginTop: '1rem', fontSize: '0.9rem', color: '#666' }}>
+			Last Updated: {lastUpdated.toLocaleString()}
+		  </div>
+		</div>
+	  </div>
+	);
+  }
+
+  // If user just completed => final step
+  if (currentStep === 'complete') {
+	const { aPct: freshA, bPct: freshB } = computeSidePercents(sideACount, sideBCount);
+	const freshTotal = sideACount + sideBCount + 2;
+
+	return (
+	  <div style={{ padding: '2rem', maxWidth: '600px', margin: '0 auto' }}>
+		<div
+		  style={{
+			backgroundColor: '#fff',
+			boxShadow: '0 2px 6px rgba(0,0,0,0.1)',
+			borderRadius: '8px',
+			padding: '1.5rem'
+		  }}
+		>
+		  <h2 className="text-xl font-bold mb-2">
+			<Link to={`/props/${propData.propID}`} className="text-blue-600 hover:underline">
+			  {propData.propShort}
+			</Link>
+		  </h2>
+		  <CompleteStep takeID={takeID} />
+		  <p style={{ marginTop: '1rem', fontWeight: 'bold' }}>
+			Total Takes: {freshTotal}
+		  </p>
+		  {selectedChoice && (
+			<PropChoices
+			  propStatus="alreadyTook"
+			  gradedSide=""
+			  selectedChoice={selectedChoice}
+			  resultsRevealed={true}
+			  onSelectChoice={() => {}}
+			  sideAPct={freshA}
+			  sideBPct={freshB}
+			  sideALabel={propData.PropSideAShort}
+			  sideBLabel={propData.PropSideBShort}
+			/>
+		  )}
+
+		  {!loggedInUser && (
+			<p style={{ marginTop: '1rem', fontSize: '0.9rem' }}>
+			  Already made this take?{' '}
+			  <Link to={`/login?redirect=${redirectPath}`} className="text-blue-600 underline">
+				Log in to see it
+			  </Link>
+			</p>
+		  )}
+
+		  <div style={{ marginTop: '1rem', fontSize: '0.9rem', color: '#666' }}>
+			Last Updated: {lastUpdated.toLocaleString()}
+		  </div>
+		</div>
+	  </div>
+	);
+  }
+
+  // Otherwise => normal open scenario
   return (
 	<div style={{ padding: '2rem', maxWidth: '600px', margin: '0 auto' }}>
 	  <div
@@ -646,10 +729,15 @@ export default function VerificationWidget({ embeddedPropID }) {
 		  padding: '1.5rem'
 		}}
 	  >
-		<h2 className="text-xl font-bold mb-2">{propData.propShort}</h2>
+		<h2 className="text-xl font-bold mb-2">
+		  <Link to={`/props/${propData.propID}`} className="text-blue-600 hover:underline">
+			{propData.propShort}
+		  </Link>
+		</h2>
 
 		<PropChoices
 		  propStatus="open"
+		  gradedSide=""
 		  selectedChoice={selectedChoice}
 		  resultsRevealed={resultsRevealed}
 		  onSelectChoice={handleSelectChoice}
@@ -691,6 +779,15 @@ export default function VerificationWidget({ embeddedPropID }) {
 			  />
 			)}
 		  </>
+		)}
+
+		{!loggedInUser && (
+		  <p style={{ marginTop: '1rem', fontSize: '0.9rem' }}>
+			Already made this take?{' '}
+			<Link to={`/login?redirect=${redirectPath}`} className="text-blue-600 underline">
+			  Log in to see it
+			</Link>
+		  </p>
 		)}
 
 		<div style={{ marginTop: '1rem', fontSize: '0.9rem', color: '#666' }}>

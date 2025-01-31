@@ -19,7 +19,9 @@ export default function LoginPage() {
   const [code, setCode] = useState('');
   const [error, setError] = useState('');
 
-  async function handleSendCode() {
+  // Helper to request the code
+  async function handleSendCode(e) {
+	if (e) e.preventDefault(); // prevent the form from refreshing
 	console.log('[LoginPage] Sending code to phone:', phone);
 	const numeric = phone.replace(/\D/g, '');
 	if (numeric.length !== 10) {
@@ -47,7 +49,9 @@ export default function LoginPage() {
 	}
   }
 
-  async function handleVerifyCode() {
+  // Helper to verify the code
+  async function handleVerifyCode(e) {
+	if (e) e.preventDefault();
 	console.log('[LoginPage] Verifying code for phone:', phone);
 	const numeric = code.replace(/\D/g, '');
 	if (numeric.length !== 6) {
@@ -76,7 +80,7 @@ export default function LoginPage() {
 		// Save to context
 		setLoggedInUser(meData.user);
 
-		// 2) If we have a ?redirect=..., go there; else go to the user's profile
+		// If we have a ?redirect=..., go there; else go to the user's profile
 		console.log('[LoginPage] Successful verify. redirectPath =>', redirectPath);
 		if (redirectPath) {
 		  navigate(redirectPath);
@@ -103,7 +107,7 @@ export default function LoginPage() {
 	  )}
 
 	  {step === 'phone' && (
-		<>
+		<form onSubmit={handleSendCode}>
 		  <label className="block mb-2">Enter your phone number:</label>
 		  <input
 			type="tel"
@@ -113,16 +117,16 @@ export default function LoginPage() {
 			className="border p-2 mb-4 w-full"
 		  />
 		  <button
-			onClick={handleSendCode}
+			type="submit"
 			className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
 		  >
 			Send Code
 		  </button>
-		</>
+		</form>
 	  )}
 
 	  {step === 'code' && (
-		<>
+		<form onSubmit={handleVerifyCode}>
 		  <label className="block mb-2">Enter the 6-digit verification code:</label>
 		  <input
 			type="text"
@@ -132,12 +136,12 @@ export default function LoginPage() {
 			className="border p-2 mb-4 w-full"
 		  />
 		  <button
-			onClick={handleVerifyCode}
+			type="submit"
 			className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
 		  >
 			Verify Code
 		  </button>
-		</>
+		</form>
 	  )}
 	</div>
   );
