@@ -107,7 +107,9 @@ app.post('/api/sendCode', async (req, res) => {
 
 app.post('/api/verifyCode', async (req, res) => {
   const { phone, code } = req.body;
-  if (!phone || !code) return res.status(400).json({ error: 'Missing phone or code' });
+  if (!phone || !code) {
+	return res.status(400).json({ error: 'Missing phone or code' });
+  }
 
   try {
 	const numeric = phone.replace(/\D/g, '');
@@ -168,7 +170,9 @@ app.get('/api/prop', async (req, res) => {
 	  .select({ filterByFormula: `{propID} = "${propID}"`, maxRecords: 1 })
 	  .all();
 
-	if (propsFound.length === 0) return res.status(404).json({ error: 'Prop not found' });
+	if (propsFound.length === 0) {
+	  return res.status(404).json({ error: 'Prop not found' });
+	}
 
 	const propRec = propsFound[0];
 	const pf = propRec.fields;
@@ -179,6 +183,13 @@ app.get('/api/prop', async (req, res) => {
 	  subjectLogoUrl = pf.subjectLogo[0].url || '';
 	}
 
+	// NEW: Grab the first attachment from contentImage if present
+	let contentImageUrl = '';
+	if (Array.isArray(pf.contentImage) && pf.contentImage.length > 0) {
+	  contentImageUrl = pf.contentImage[0].url || '';
+	}
+
+	// Build related-content array
 	const contentTitles = pf.contentTitles || [];
 	const contentURLs = pf.contentURLs || [];
 	const contentList = contentTitles.map((title, i) => ({
@@ -218,6 +229,8 @@ app.get('/api/prop', async (req, res) => {
 	  createdAt,
 	  subjectTitle: pf.subjectTitle || '',
 	  subjectLogoUrl,
+	  // Include this in the response so the front-end can display it
+	  contentImageUrl,
 	  PropSideAShort: pf.PropSideAShort || 'Side A',
 	  PropSideBShort: pf.PropSideBShort || 'Side B',
 	  sideACount,
@@ -249,7 +262,9 @@ app.post('/api/take', async (req, res) => {
 	  .all();
 
 	if (propsFound.length === 0) {
-	  return res.status(404).json({ error: `No prop found for propID=${propID}` });
+	  return res
+		.status(404)
+		.json({ error: `No prop found for propID=${propID}` });
 	}
 
 	const propRec = propsFound[0];
@@ -357,12 +372,11 @@ app.post('/api/take', async (req, res) => {
 });
 
 // --------------------------------------
-// GET /api/takes/:takeID  (UPDATED to fetch the Prop & Content)
+// GET /api/takes/:takeID
 // --------------------------------------
 app.get('/api/takes/:takeID', async (req, res) => {
   const { takeID } = req.params;
   try {
-	// 1) Fetch the Take
 	const found = await base('Takes')
 	  .select({ filterByFormula: `{TakeID}="${takeID}"`, maxRecords: 1 })
 	  .all();
@@ -373,8 +387,6 @@ app.get('/api/takes/:takeID', async (req, res) => {
 
 	const takeRec = found[0];
 	const tf = takeRec.fields;
-
-	// Minimal "take" object
 	const takeData = {
 	  airtableRecordId: takeRec.id,
 	  takeID: tf.TakeID || takeRec.id,
@@ -384,15 +396,13 @@ app.get('/api/takes/:takeID', async (req, res) => {
 	  takePopularity: tf.takePopularity || 0,
 	  createdTime: takeRec._rawJson.createdTime,
 	  takeStatus: tf.takeStatus || '',
-
-	  // If you have these from lookup fields, you can keep them:
 	  propTitle: tf.propTitle || '',
 	  subjectTitle: tf.subjectTitle || '',
 	  propSideAShort: tf.propSideAShort || 'Side A',
 	  propSideBShort: tf.propSideBShort || 'Side B',
 	};
 
-	// 2) If we want the actual prop & content, do a minimal second query to "Props"
+	// Optionally fetch the associated prop
 	let propData = null;
 	let contentData = [];
 
@@ -408,7 +418,6 @@ app.get('/api/takes/:takeID', async (req, res) => {
 		const p = propsFound[0];
 		const pf = p.fields;
 
-		// Build "prop" object
 		propData = {
 		  airtableRecordId: p.id,
 		  propID: pf.propID,
@@ -421,7 +430,7 @@ app.get('/api/takes/:takeID', async (req, res) => {
 		  propLong: pf.propLong || '',
 		};
 
-		// Content arrays from "Props" lookups
+		// Also grab any "content" arrays
 		const contentTitles = pf.contentTitles || [];
 		const contentURLs = pf.contentURLs || [];
 		contentData = contentTitles.map((title, i) => ({
@@ -431,7 +440,6 @@ app.get('/api/takes/:takeID', async (req, res) => {
 	  }
 	}
 
-	// 3) Return all in one response
 	res.json({
 	  success: true,
 	  take: takeData,
@@ -527,7 +535,7 @@ app.get('/api/subjectIDs', async (req, res) => {
 	res.json({ success: true, subjectIDs });
   } catch (err) {
 	console.error('[GET /api/subjectIDs] Error:', err);
-	res.status(500).json({ success: false, error: 'Server error fetching subject IDs' });
+	res.status(500).json({ success: false, error: 'Server error' });
   }
 });
 
@@ -541,7 +549,7 @@ app.get('/api/related-prop', async (req, res) => {
   }
 
   try {
-	// 1) Find all Props matching the given subjectID
+	// 1) Find all Props with given subjectID
 	const propsFound = await base('Props')
 	  .select({
 		filterByFormula: `{propSubjectID}="${subjectID}"`,
@@ -559,40 +567,33 @@ app.get('/api/related-prop', async (req, res) => {
 
 	let takenPropIDs = [];
 
-	// 3) If the user has any Takes, fetch them all in ONE query
+	// 3) If the user has Takes, gather them
 	if (profileRecords.length > 0) {
 	  const profRec = profileRecords[0];
 	  if (Array.isArray(profRec.fields.Takes) && profRec.fields.Takes.length > 0) {
-		const recordIds = profRec.fields.Takes; // array of Take record IDs
-
-		// Build a single OR(...) filter, e.g. OR(RECORD_ID()="rec123", RECORD_ID()="rec456")
+		const recordIds = profRec.fields.Takes;
 		const orClauses = recordIds.map((id) => `RECORD_ID()="${id}"`).join(',');
 		const filterByFormula = `OR(${orClauses})`;
-
-		// Fetch all user’s Take records in one go
 		const takeRecords = await base('Takes')
 		  .select({
 			filterByFormula,
 			maxRecords: 5000,
-			// optional: fields: ['propID']  // if you only need propID
 		  })
 		  .all();
-
-		// Collect all the propIDs from those Takes
 		takenPropIDs = takeRecords
 		  .map((t) => t.fields.propID)
-		  .filter(Boolean); // remove any undefined
-		takenPropIDs = [...new Set(takenPropIDs)]; // remove duplicates
+		  .filter(Boolean);
+		takenPropIDs = [...new Set(takenPropIDs)];
 	  }
 	}
 
-	// 4) Filter out Props that the user has already taken
+	// 4) Filter out props user already took
 	const availableProps = propsFound.filter((propRec) => {
 	  const pf = propRec.fields;
 	  return !takenPropIDs.includes(pf.propID);
 	});
 
-	// 5) Return either the first available prop or messages accordingly
+	// 5) Return first available or message
 	if (availableProps.length > 0) {
 	  return res.json({ success: true, prop: availableProps[0].fields });
 	} else if (propsFound.length > 0) {
@@ -610,7 +611,6 @@ app.get('/api/related-prop', async (req, res) => {
   }
 });
 
-
 // --------------------------------------
 // GET /api/profile/:profileID
 // --------------------------------------
@@ -621,7 +621,9 @@ app.get('/api/profile/:profileID', async (req, res) => {
 	  .select({ filterByFormula: `{profileID}="${profileID}"`, maxRecords: 1 })
 	  .all();
 
-	if (found.length === 0) return res.status(404).json({ error: 'Profile not found' });
+	if (found.length === 0) {
+	  return res.status(404).json({ error: 'Profile not found' });
+	}
 
 	const profRec = found[0];
 	const pf = profRec.fields;
@@ -734,11 +736,19 @@ app.get('/api/props', async (req, res) => {
 	  const f = propRec.fields;
 	  const createdAt = propRec._rawJson.createdTime;
 
+	  // If there's a subjectLogo (attachment), fetch its url
 	  let subjectLogoUrl = '';
 	  if (Array.isArray(f.subjectLogo) && f.subjectLogo.length > 0) {
 		subjectLogoUrl = f.subjectLogo[0].url || '';
 	  }
 
+	  // Grab the first attachment from contentImage if present
+	  let contentImageUrl = '';
+	  if (Array.isArray(f.contentImage) && f.contentImage.length > 0) {
+		contentImageUrl = f.contentImage[0].url || '';
+	  }
+
+	  // Build “related content” array
 	  const contentTitles = f.contentTitles || [];
 	  const contentURLs = f.contentURLs || [];
 	  const cArr = contentTitles.map((title, i) => ({
@@ -757,6 +767,7 @@ app.get('/api/props', async (req, res) => {
 		PropSideBShort: f.PropSideBShort || 'Side B',
 		subjectTitle: f.subjectTitle || '',
 		subjectLogoUrl,
+		contentImageUrl, // includes the new field
 		content: cArr,
 	  };
 	});
@@ -764,7 +775,10 @@ app.get('/api/props', async (req, res) => {
 	return res.json({ success: true, props: propsData });
   } catch (err) {
 	console.error('[api/props] Error:', err);
-	return res.status(500).json({ success: false, error: 'Server error fetching props' });
+	return res.status(500).json({
+	  success: false,
+	  error: 'Server error fetching props',
+	});
   }
 });
 

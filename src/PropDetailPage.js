@@ -41,8 +41,8 @@ export default function PropDetailPage() {
   }
 
   return (
-	<div className="p-4 max-w-3xl mx-auto">
-	  {/* 1) Prop Title (Tailwind "h1") */}
+	<div className="max-w-3xl mx-auto px-2 sm:px-4 py-2 sm:py-4">
+	  {/* 1) Prop Title */}
 	  <h1 className="text-3xl font-bold mb-2">{propData.propTitle}</h1>
 
 	  {/* 2) Subject Logo (small square) */}
@@ -54,11 +54,33 @@ export default function PropDetailPage() {
 		/>
 	  )}
 
+	  {/* 2.5) Main prop image in 4:3 aspect ratio */}
+	  {propData.contentImageUrl && (
+		<div
+		  style={{
+			width: '100%',
+			maxWidth: '600px',
+			aspectRatio: '4/3',
+			overflow: 'hidden',
+			backgroundColor: '#ccc',
+			marginBottom: '1rem',
+		  }}
+		>
+		  <img
+			src={propData.contentImageUrl}
+			alt="Prop content"
+			style={{
+			  width: '100%',
+			  height: '100%',
+			  objectFit: 'cover',
+			}}
+		  />
+		</div>
+	  )}
+
 	  {/* 3) Subject Title and Created At */}
 	  <div className="text-sm text-gray-700 mb-4">
-		{propData.subjectTitle && (
-		  <p className="mb-1">Subject: {propData.subjectTitle}</p>
-		)}
+		{propData.subjectTitle && <p className="mb-1">Subject: {propData.subjectTitle}</p>}
 		<p>Created: {propData.createdAt}</p>
 	  </div>
 
@@ -76,10 +98,7 @@ export default function PropDetailPage() {
 		  <h3 className="text-xl font-semibold mb-2">Related Content</h3>
 		  <ul className="pl-4">
 			{propData.content.map((item, idx) => (
-			  <li
-				key={idx}
-				className="mb-2 flex items-center"
-			  >
+			  <li key={idx} className="mb-2 flex items-center">
 				{/* Optional content image */}
 				{item.contentImageUrl && (
 				  <img

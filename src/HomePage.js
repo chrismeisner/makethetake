@@ -13,6 +13,7 @@ export default function HomePage() {
   // Logged-in user from context
   const { loggedInUser } = React.useContext(UserContext);
 
+  // On mount, fetch the Props + Takes
   React.useEffect(() => {
 	async function loadData() {
 	  try {
@@ -24,7 +25,8 @@ export default function HomePage() {
 		  setLoading(false);
 		  return;
 		}
-		// Filter out archived props (if you want)
+
+		// (Optional) filter out archived props:
 		const filteredProps = (propsData.props || []).filter(
 		  (prop) => prop.propStatus !== 'archived'
 		);
@@ -62,18 +64,18 @@ export default function HomePage() {
 	loadData();
   }, []);
 
+  // Loading / Error states
   if (loading) {
 	return <div className="p-4">Loading props...</div>;
   }
-
   if (error) {
 	return <div className="p-4 text-red-600">Error: {error}</div>;
   }
-
   if (propsList.length === 0) {
 	return <div className="p-4">No props found (none are open or non-archived).</div>;
   }
 
+  // Main UI
   return (
 	<div className="p-4">
 	  <h2 className="text-2xl font-bold mb-4">All Propositions</h2>
@@ -96,17 +98,25 @@ export default function HomePage() {
 			  {/* -- PROP HEADER -- */}
 			  <div style={{ display: 'flex', alignItems: 'center' }}>
 				{prop.subjectLogoUrl && (
-				  <img
-					src={prop.subjectLogoUrl}
-					alt={prop.subjectTitle || 'Subject Logo'}
+				  <div
 					style={{
 					  width: '40px',
-					  height: '40px',
-					  objectFit: 'cover',
+					  aspectRatio: '1/1',
+					  overflow: 'hidden',
 					  borderRadius: '4px',
 					  marginRight: '0.5rem',
 					}}
-				  />
+				  >
+					<img
+					  src={prop.subjectLogoUrl}
+					  alt={prop.subjectTitle || 'Subject Logo'}
+					  style={{
+						width: '100%',
+						height: '100%',
+						objectFit: 'cover',
+					  }}
+					/>
+				  </div>
 				)}
 				<h3 className="text-xl font-semibold">
 				  <Link to={`/props/${prop.propID}`} className="text-blue-600 hover:underline">
@@ -129,6 +139,52 @@ export default function HomePage() {
 				Created: {prop.createdAt}
 			  </p>
 
+			  {/* -- IMAGE OR PLACEHOLDER (clickable) -- */}
+			  <div style={{ marginTop: '1rem' }}>
+				{prop.contentImageUrl ? (
+				  <Link to={`/props/${prop.propID}`}>
+					<div
+					  style={{
+						width: '100%',
+						maxWidth: '400px',
+						aspectRatio: '4/3', // Enforce 4:3 aspect ratio
+						overflow: 'hidden',
+						backgroundColor: '#ccc',
+					  }}
+					>
+					  <img
+						src={prop.contentImageUrl}
+						alt="Prop content"
+						style={{
+						  width: '100%',
+						  height: '100%',
+						  objectFit: 'cover',
+						}}
+					  />
+					</div>
+				  </Link>
+				) : (
+				  <Link to={`/props/${prop.propID}`}>
+					<div
+					  style={{
+						width: '100%',
+						maxWidth: '400px',
+						aspectRatio: '4/3', // same 4:3 ratio for the placeholder
+						overflow: 'hidden',
+						backgroundColor: 'blue',
+						color: '#fff',
+						display: 'flex',
+						alignItems: 'center',
+						justifyContent: 'center',
+						fontWeight: 'bold',
+					  }}
+					>
+					  NEW IMAGE
+					</div>
+				  </Link>
+				)}
+			  </div>
+
 			  {/* -- PROP SUMMARY -- */}
 			  <p className="mt-2">{prop.propSummary}</p>
 
@@ -143,7 +199,6 @@ export default function HomePage() {
 			  {/* -- USER'S TAKE STATUS -- */}
 			  <div style={{ marginTop: '1rem' }}>
 				<p className="text-sm font-semibold">Your Take:</p>
-
 				{!loggedInUser ? (
 				  <p className="text-gray-600">
 					<Link to="/login?redirect=/" className="text-blue-600 underline">
@@ -156,8 +211,8 @@ export default function HomePage() {
 					// Determine which side label to show
 					const sideLabel =
 					  userTake.propSide === 'A'
-						? (userTake.propSideAShort || 'Side A')
-						: (userTake.propSideBShort || 'Side B');
+						? userTake.propSideAShort || 'Side A'
+						: userTake.propSideBShort || 'Side B';
 
 					return (
 					  <p>
