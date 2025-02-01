@@ -1,34 +1,108 @@
 // File: src/TakePage.js
-
 import React, { useContext, useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import VerificationWidget from './VerificationWidget';
-import { UserContext } from './UserContext'; // <-- NEW: import context
+import { UserContext } from './UserContext';
+
+// A sub-component to fetch & render a "Related Proposition" (based on subjectID).
+function RelatedPropSection({ currentPropSubjectID }) {
+  const { loggedInUser } = useContext(UserContext);
+  const [relatedProp, setRelatedProp] = useState(null);
+  const [loadingRelated, setLoadingRelated] = useState(true);
+  const [errorRelated, setErrorRelated] = useState('');
+
+  useEffect(() => {
+	async function fetchRelatedProp() {
+	  console.log('[RelatedPropSection] Starting fetch. currentPropSubjectID:', currentPropSubjectID);
+
+	  // If not logged in, can't fetch related props
+	  if (!loggedInUser) {
+		console.log('[RelatedPropSection] No logged-in user.');
+		setErrorRelated('Please log in to see related propositions.');
+		setLoadingRelated(false);
+		return;
+	  }
+	  // If no subject ID is provided, we can’t look up related props
+	  if (!currentPropSubjectID) {
+		console.log('[RelatedPropSection] No subject ID provided.');
+		setErrorRelated(`No subject available for related propositions. (subjectID: "${currentPropSubjectID}")`);
+		setLoadingRelated(false);
+		return;
+	  }
+
+	  try {
+		const url = `/api/related-prop?subjectID=${encodeURIComponent(
+		  currentPropSubjectID
+		)}&profileID=${encodeURIComponent(loggedInUser.profileID)}`;
+
+		console.log('[RelatedPropSection] Fetching URL:', url);
+		const response = await fetch(url);
+		const data = await response.json();
+		console.log('[RelatedPropSection] API response:', data);
+
+		if (data.success) {
+		  if (data.prop) {
+			console.log('[RelatedPropSection] Related prop found:', data.prop);
+			setRelatedProp(data.prop);
+		  } else if (data.message) {
+			console.log('[RelatedPropSection] No related prop available. Message:', data.message);
+			setErrorRelated(data.message);
+		  }
+		} else {
+		  console.log('[RelatedPropSection] API returned failure:', data.error);
+		  setErrorRelated(data.error || 'No related prop found.');
+		}
+	  } catch (err) {
+		console.error('[RelatedPropSection] Error during fetch:', err);
+		setErrorRelated('Could not fetch related prop.');
+	  }
+	  setLoadingRelated(false);
+	}
+	fetchRelatedProp();
+  }, [currentPropSubjectID, loggedInUser]);
+
+  if (loadingRelated) {
+	return <div>Loading related proposition...</div>;
+  }
+
+  if (errorRelated) {
+	return <div className="text-red-600">{errorRelated}</div>;
+  }
+
+  if (!relatedProp) {
+	return <div>No more props available, good job!</div>;
+  }
+
+  return (
+	<div style={{ marginTop: '2rem' }}>
+	  <h3 className="text-2xl font-bold mb-4">Related Proposition</h3>
+	  <VerificationWidget embeddedPropID={relatedProp.propID} />
+	</div>
+  );
+}
 
 export default function TakePage() {
   const { takeID } = useParams();
-  const { loggedInUser } = useContext(UserContext); // <-- NEW: access logged-in user
-  
+  const { loggedInUser } = useContext(UserContext);
+
   const [takeData, setTakeData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
   useEffect(() => {
-	// Log whether the user is logged in
 	console.log('[TakePage] loggedInUser =>', loggedInUser);
 	console.log(`[TakePage] Fetching take data for takeID="${takeID}"...`);
 
-	// Call your backend endpoint: /api/takes/:takeID
+	// Fetch from your server: /api/takes/:takeID
 	fetch(`/api/takes/${takeID}`)
 	  .then((res) => res.json())
 	  .then((data) => {
+		console.log('[TakePage] API response for take:', data);
 		if (!data.success) {
 		  setError(data.error || 'Unknown error loading take');
 		  setLoading(false);
 		  return;
 		}
-
-		console.log('[TakePage] Take data loaded:', data);
 		setTakeData(data);
 		setLoading(false);
 	  })
@@ -37,8 +111,7 @@ export default function TakePage() {
 		setError('Could not fetch take data. Please try again later.');
 		setLoading(false);
 	  });
-  }, [takeID, loggedInUser]); 
-  // ^ include loggedInUser in dependencies so it logs if user changes
+  }, [takeID, loggedInUser]);
 
   if (loading) {
 	return (
@@ -57,7 +130,7 @@ export default function TakePage() {
 	);
   }
 
-  // If no data came back or "take" is missing, show a 404-ish message
+  // If there's no "take" object, show a fallback
   if (!takeData || !takeData.take) {
 	return (
 	  <div className="p-4 text-red-600">
@@ -67,7 +140,7 @@ export default function TakePage() {
 	);
   }
 
-  // Destructure fields from the returned data
+  // The server now returns { success: true, take, prop, content }
   const { take, prop, content } = takeData;
 
   return (
@@ -131,8 +204,11 @@ export default function TakePage() {
 		<div className="border p-4 rounded">
 		  <h3 className="text-xl font-semibold">Related Content</h3>
 		  <ul className="list-disc list-inside mt-2">
-			{content.map((c) => (
-			  <li key={c.airtableRecordId} className="my-1">
+			{content.map((c, i) => (
+			  <li
+				key={c.airtableRecordId || i}
+				className="my-1"
+			  >
 				<strong>{c.contentTitle}</strong>
 				{c.contentSource ? ` (Source: ${c.contentSource})` : ''}{' '}
 				{c.contentURL && (
@@ -153,17 +229,20 @@ export default function TakePage() {
 		<p>No related content found.</p>
 	  )}
 
-	  {/* Now we embed the same poll/verification widget if we want to let user vote again */}
+	  {/* Vote on this Prop */}
 	  <div style={{ marginTop: '2rem' }}>
-		<h3>Vote on This Prop</h3>
-
-		{/* Pass in the actual propID from the loaded take data */}
+		<h3 className="text-2xl font-bold mb-4">Vote on This Prop</h3>
 		{prop && prop.propID ? (
 		  <VerificationWidget embeddedPropID={prop.propID} />
 		) : (
 		  <p>No propID to vote on.</p>
 		)}
 	  </div>
+
+	  {/* ALWAYS render the Related Proposition section for logged-in users */}
+	  {loggedInUser && (
+		<RelatedPropSection currentPropSubjectID={prop?.propSubjectID || ''} />
+	  )}
 	</div>
   );
 }

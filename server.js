@@ -10,30 +10,18 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, 'build')));
 
 // --------------------------------------
-// 0) Configure Twilio + Airtable
+// Twilio + Airtable setup
 // --------------------------------------
 const twilioClient = twilio(
   process.env.TWILIO_ACCOUNT_SID,
   process.env.TWILIO_AUTH_TOKEN
 );
 
-// Debug logs: confirm environment variables
-console.log('TWILIO_ACCOUNT_SID:', process.env.TWILIO_ACCOUNT_SID);
-console.log('TWILIO_AUTH_TOKEN:', process.env.TWILIO_AUTH_TOKEN);
-console.log('APP_URL:', process.env.APP_URL);
-
-twilioClient.api.accounts(process.env.TWILIO_ACCOUNT_SID)
-  .fetch()
-  .then(account => console.log('Fetched account friendlyName:', account.friendlyName))
-  .catch(err => console.error('Failed to fetch account:', err));
-
-Airtable.configure({
-  apiKey: process.env.AIRTABLE_API_KEY,
-});
+Airtable.configure({ apiKey: process.env.AIRTABLE_API_KEY });
 const base = Airtable.base(process.env.AIRTABLE_BASE_ID);
 
 // --------------------------------------
-// 0.5) Configure express-session
+// Session config
 // --------------------------------------
 app.use(
   session({
@@ -43,13 +31,12 @@ app.use(
 	cookie: {
 	  httpOnly: true,
 	  sameSite: 'lax',
-	  // maxAge: ...
 	},
   })
 );
 
 // --------------------------------------
-// 1) Helper: Generate random profileID
+// Helper: Generate random profileID
 // --------------------------------------
 function generateRandomProfileID(length = 8) {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
@@ -61,22 +48,16 @@ function generateRandomProfileID(length = 8) {
 }
 
 // --------------------------------------
-// 2) Helper: ensureProfileRecord(phoneE164)
+// Helper: ensureProfileRecord(phoneE164)
 // --------------------------------------
 async function ensureProfileRecord(phoneE164) {
-  console.log('[ensureProfileRecord] Checking phone:', phoneE164);
-
   const filterByFormula = `{profileMobile} = "${phoneE164}"`;
   const found = await base('Profiles')
-	.select({
-	  filterByFormula,
-	  maxRecords: 1,
-	})
+	.select({ filterByFormula, maxRecords: 1 })
 	.all();
 
-  if (found && found.length > 0) {
+  if (found.length > 0) {
 	const existing = found[0];
-	console.log('[ensureProfileRecord] Found existing profile:', existing.id);
 	return {
 	  airtableId: existing.id,
 	  profileID: existing.fields.profileID,
@@ -85,8 +66,6 @@ async function ensureProfileRecord(phoneE164) {
   }
 
   const newProfileID = generateRandomProfileID(8);
-  console.log('[ensureProfileRecord] Creating new profile with ID:', newProfileID);
-
   const created = await base('Profiles').create([
 	{
 	  fields: {
@@ -97,7 +76,6 @@ async function ensureProfileRecord(phoneE164) {
   ]);
 
   const newRec = created[0];
-  console.log('[ensureProfileRecord] Created profile:', newRec.id, newRec.fields);
   return {
 	airtableId: newRec.id,
 	profileID: newRec.fields.profileID,
@@ -106,18 +84,15 @@ async function ensureProfileRecord(phoneE164) {
 }
 
 // --------------------------------------
-// 3) Twilio-based endpoints (Verify v2)
+// Twilio Verify endpoints
 // --------------------------------------
 app.post('/api/sendCode', async (req, res) => {
   const { phone } = req.body;
-  if (!phone) {
-	return res.status(400).json({ error: 'Missing phone' });
-  }
+  if (!phone) return res.status(400).json({ error: 'Missing phone' });
 
   try {
 	const numeric = phone.replace(/\D/g, '');
 	const e164Phone = '+1' + numeric;
-	console.log('[api/sendCode] Sending code to:', e164Phone);
 
 	await twilioClient.verify.v2
 	  .services(process.env.TWILIO_VERIFY_SERVICE_SID)
@@ -132,9 +107,7 @@ app.post('/api/sendCode', async (req, res) => {
 
 app.post('/api/verifyCode', async (req, res) => {
   const { phone, code } = req.body;
-  if (!phone || !code) {
-	return res.status(400).json({ error: 'Missing phone or code' });
-  }
+  if (!phone || !code) return res.status(400).json({ error: 'Missing phone or code' });
 
   try {
 	const numeric = phone.replace(/\D/g, '');
@@ -146,13 +119,8 @@ app.post('/api/verifyCode', async (req, res) => {
 
 	if (check.status === 'approved') {
 	  try {
-		// If code is correct, ensure profile
 		const profile = await ensureProfileRecord(e164Phone);
-		// Save user in session
-		req.session.user = {
-		  phone: e164Phone,
-		  profileID: profile.profileID,
-		};
+		req.session.user = { phone: e164Phone, profileID: profile.profileID };
 		return res.json({ success: true });
 	  } catch (errProfile) {
 		console.error('[api/verifyCode] Profile error:', errProfile);
@@ -168,7 +136,7 @@ app.post('/api/verifyCode', async (req, res) => {
 });
 
 // --------------------------------------
-// 3.5) Session-based login
+// Session-based login endpoints
 // --------------------------------------
 app.get('/api/me', (req, res) => {
   if (req.session.user) {
@@ -189,85 +157,55 @@ app.post('/api/logout', (req, res) => {
 });
 
 // --------------------------------------
-// 4) GET /api/prop?propID=xyz
+// GET /api/prop
 // --------------------------------------
 app.get('/api/prop', async (req, res) => {
   const propID = req.query.propID;
-  if (!propID) {
-	return res.status(400).json({ error: 'Missing propID' });
-  }
+  if (!propID) return res.status(400).json({ error: 'Missing propID' });
 
   try {
-	const found = await base('Props')
-	  .select({
-		filterByFormula: `{propID}='${propID}'`,
-		maxRecords: 1,
-	  })
+	const propsFound = await base('Props')
+	  .select({ filterByFormula: `{propID} = "${propID}"`, maxRecords: 1 })
 	  .all();
 
-	if (!found || found.length === 0) {
-	  return res.status(404).json({ error: 'Prop not found' });
-	}
-	const propRec = found[0];
+	if (propsFound.length === 0) return res.status(404).json({ error: 'Prop not found' });
+
+	const propRec = propsFound[0];
 	const pf = propRec.fields;
 	const createdAt = propRec._rawJson.createdTime;
 
-	// Subject info
-	let subjectTitle = '';
 	let subjectLogoUrl = '';
-	if (pf.propSubjectID) {
-	  const subFound = await base('Subjects')
-		.select({
-		  filterByFormula: `{subjectID} = "${pf.propSubjectID}"`,
-		  maxRecords: 1,
-		})
-		.all();
-	  if (subFound && subFound.length > 0) {
-		const sf = subFound[0].fields;
-		subjectTitle = sf.subjectTitle || '';
-		if (sf.subjectLogo && Array.isArray(sf.subjectLogo) && sf.subjectLogo.length > 0) {
-		  subjectLogoUrl = sf.subjectLogo[0].url;
-		}
-	  }
+	if (pf.subjectLogo && Array.isArray(pf.subjectLogo) && pf.subjectLogo.length > 0) {
+	  subjectLogoUrl = pf.subjectLogo[0].url || '';
 	}
 
-	// Count takes
+	const contentTitles = pf.contentTitles || [];
+	const contentURLs = pf.contentURLs || [];
+	const contentList = contentTitles.map((title, i) => ({
+	  contentTitle: title,
+	  contentURL: contentURLs[i] || '',
+	}));
+
+	// Count the "Takes"
 	const allTakes = await base('Takes')
-	  .select({ filterByFormula: `{propID}='${propID}'`, maxRecords: 5000 })
+	  .select({
+		filterByFormula: `AND({propID}="${propID}", {takeStatus} != "overwritten")`,
+		maxRecords: 5000,
+	  })
 	  .all();
 
 	let sideACount = 0;
 	let sideBCount = 0;
-	for (const t of allTakes) {
+	allTakes.forEach((t) => {
 	  if (t.fields.propSide === 'A') sideACount++;
 	  if (t.fields.propSide === 'B') sideBCount++;
-	}
+	});
+
 	const sideAwithOffset = sideACount + 1;
 	const sideBwithOffset = sideBCount + 1;
 	const total = sideAwithOffset + sideBwithOffset;
 	const propSideAPct = Math.round((sideAwithOffset / total) * 100);
 	const propSideBPct = Math.round((sideBwithOffset / total) * 100);
-
-	// Content
-	const contentRecords = await base('Content')
-	  .select({
-		filterByFormula: `{propID} = '${propID}'`,
-		maxRecords: 100,
-	  })
-	  .all();
-
-	const contentList = contentRecords.map((cRec) => {
-	  const cf = cRec.fields;
-	  let contentImageUrl = '';
-	  if (cf.contentImage && Array.isArray(cf.contentImage) && cf.contentImage.length > 0) {
-		contentImageUrl = cf.contentImage[0].url;
-	  }
-	  return {
-		contentTitle: cf.contentTitle || '',
-		contentURL: cf.contentURL || '',
-		contentImageUrl,
-	  };
-	});
 
 	return res.json({
 	  success: true,
@@ -277,14 +215,11 @@ app.get('/api/prop', async (req, res) => {
 	  propShort: pf.propShort || '',
 	  propLong: pf.propLong || '',
 	  propStatus: pf.propStatus || 'open',
-
 	  createdAt,
-	  subjectTitle,
+	  subjectTitle: pf.subjectTitle || '',
 	  subjectLogoUrl,
-
 	  PropSideAShort: pf.PropSideAShort || 'Side A',
 	  PropSideBShort: pf.PropSideBShort || 'Side B',
-
 	  sideACount,
 	  sideBCount,
 	  propSideAPct,
@@ -298,7 +233,7 @@ app.get('/api/prop', async (req, res) => {
 });
 
 // --------------------------------------
-// 5) POST /api/take
+// POST /api/take
 // --------------------------------------
 app.post('/api/take', async (req, res) => {
   const { takeMobile, propID, propSide } = req.body;
@@ -309,41 +244,35 @@ app.post('/api/take', async (req, res) => {
   }
 
   try {
-	// 1) Check prop
 	const propsFound = await base('Props')
-	  .select({
-		filterByFormula: `{propID}='${propID}'`,
-		maxRecords: 1,
-	  })
+	  .select({ filterByFormula: `{propID}="${propID}"`, maxRecords: 1 })
 	  .all();
 
-	if (!propsFound || propsFound.length === 0) {
-	  return res
-		.status(404)
-		.json({ error: `No prop found for propID=${propID}` });
+	if (propsFound.length === 0) {
+	  return res.status(404).json({ error: `No prop found for propID=${propID}` });
 	}
 
 	const propRec = propsFound[0];
-	const propAirtableID = propRec.id;
 	const propStatus = propRec.fields.propStatus || 'open';
-
 	if (propStatus !== 'open') {
 	  return res
 		.status(400)
 		.json({ error: `This prop is '${propStatus}'. No new takes allowed.` });
 	}
 
-	// 2) Count existing
 	const allTakes = await base('Takes')
-	  .select({ filterByFormula: `{propID}='${propID}'`, maxRecords: 5000 })
+	  .select({
+		filterByFormula: `AND({propID}="${propID}", {takeStatus} != "overwritten")`,
+		maxRecords: 5000,
+	  })
 	  .all();
 
 	let sideACount = 0;
 	let sideBCount = 0;
-	for (const t of allTakes) {
+	allTakes.forEach((t) => {
 	  if (t.fields.propSide === 'A') sideACount++;
 	  if (t.fields.propSide === 'B') sideBCount++;
-	}
+	});
 
 	const sideAwithOffset = sideACount + 1;
 	const sideBwithOffset = sideBCount + 1;
@@ -352,34 +281,27 @@ app.post('/api/take', async (req, res) => {
 	const sideBPct = Math.round((sideBwithOffset / total) * 100);
 	const takePopularity = propSide === 'A' ? sideAPct : sideBPct;
 
-	// 3) E.164
 	let e164 = takeMobile;
 	if (!e164.startsWith('+')) {
 	  e164 = '+1' + e164.replace(/\D/g, '');
 	}
 
-	// 4) Ensure profile
 	const profile = await ensureProfileRecord(e164);
 
-	// 5) Mark older takes as overwritten
+	// Overwrite older takes
 	const existingMatches = await base('Takes')
-	  .select({
-		filterByFormula: `AND({propID}="${propID}", {takeMobile}="${e164}")`,
-		maxRecords: 50,
-	  })
+	  .select({ filterByFormula: `AND({propID}="${propID}", {takeMobile}="${e164}")` })
 	  .all();
 
 	if (existingMatches.length > 0) {
 	  const updates = existingMatches.map((rec) => ({
 		id: rec.id,
-		fields: {
-		  takeStatus: 'overwritten',
-		},
+		fields: { takeStatus: 'overwritten' },
 	  }));
 	  await base('Takes').update(updates);
 	}
 
-	// 6) Create new "latest" take
+	// Create the new take
 	const created = await base('Takes').create([
 	  {
 		fields: {
@@ -389,26 +311,28 @@ app.post('/api/take', async (req, res) => {
 		  takePopularity,
 		  Profile: [profile.airtableId],
 		  takeStatus: 'latest',
-		  Prop: [propAirtableID],
+		  Prop: [propRec.id], // link to the prop
 		},
 	  },
 	]);
 	const newRec = created[0];
 	const newTakeID = newRec.fields.TakeID || newRec.id;
 
-	// 7) Re‐fetch all takes => new side counts
+	// Recount after the new take
 	const updatedTakes = await base('Takes')
-	  .select({ filterByFormula: `{propID}='${propID}'`, maxRecords: 5000 })
+	  .select({
+		filterByFormula: `AND({propID}="${propID}", {takeStatus} != "overwritten")`,
+		maxRecords: 5000,
+	  })
 	  .all();
 
 	let newSideACount = 0;
 	let newSideBCount = 0;
-	for (const t of updatedTakes) {
+	updatedTakes.forEach((t) => {
 	  if (t.fields.propSide === 'A') newSideACount++;
 	  if (t.fields.propSide === 'B') newSideBCount++;
-	}
+	});
 
-	// 8) Return success
 	res.json({
 	  success: true,
 	  newTakeID,
@@ -416,7 +340,7 @@ app.post('/api/take', async (req, res) => {
 	  sideBCount: newSideBCount,
 	});
 
-	// 9) Optional SMS confirmation
+	// Optional SMS confirmation
 	try {
 	  await twilioClient.messages.create({
 		to: e164,
@@ -428,93 +352,86 @@ app.post('/api/take', async (req, res) => {
 	}
   } catch (err) {
 	console.error('[api/take] Error:', err);
-	res.status(500).json({ error: 'Server error creating take' });
+	return res.status(500).json({ error: 'Server error creating take' });
   }
 });
 
 // --------------------------------------
-// 6) GET /api/takes/:takeID
+// GET /api/takes/:takeID  (UPDATED to fetch the Prop & Content)
 // --------------------------------------
 app.get('/api/takes/:takeID', async (req, res) => {
   const { takeID } = req.params;
-
   try {
+	// 1) Fetch the Take
 	const found = await base('Takes')
-	  .select({
-		filterByFormula: `{TakeID}='${takeID}'`,
-		maxRecords: 1,
-	  })
+	  .select({ filterByFormula: `{TakeID}="${takeID}"`, maxRecords: 1 })
 	  .all();
 
-	if (!found || found.length === 0) {
+	if (found.length === 0) {
 	  return res.status(404).json({ error: 'Take not found' });
 	}
 
 	const takeRec = found[0];
 	const tf = takeRec.fields;
 
-	// If there's a propID, fetch prop
-	let propData = null;
-	if (tf.propID) {
-	  const propsFound = await base('Props')
-		.select({
-		  filterByFormula: `{propID}='${tf.propID}'`,
-		  maxRecords: 1,
-		})
-		.all();
-	  if (propsFound && propsFound.length > 0) {
-		const p = propsFound[0];
-		const pf = p.fields;
-		propData = {
-		  airtableRecordId: p.id,
-		  propID: pf.propID,
-		  propShort: pf.propShort,
-		  PropSideAShort: pf.PropSideAShort,
-		  PropSideBShort: pf.PropSideBShort,
-		  propStatus: pf.propStatus || 'open',
-		};
-	  }
-	}
-
-	// Optional: load "Content" for that prop
-	let contentData = [];
-	if (tf.propID) {
-	  const contentRecords = await base('Content')
-		.select({
-		  filterByFormula: `{propID}='${tf.propID}'`,
-		  maxRecords: 100,
-		})
-		.all();
-
-	  contentData = contentRecords.map((c) => {
-		const cf = c.fields;
-		let contentImageUrl = '';
-		if (cf.contentImage && Array.isArray(cf.contentImage) && cf.contentImage.length > 0) {
-		  contentImageUrl = cf.contentImage[0].url;
-		}
-		return {
-		  airtableRecordId: c.id,
-		  contentTitle: cf.contentTitle || '',
-		  contentURL: cf.contentURL || '',
-		  contentSource: cf.contentSource || '',
-		  contentImageUrl,
-		  created: c._rawJson.createdTime,
-		};
-	  });
-	}
-
-	// Build final "take" object
+	// Minimal "take" object
 	const takeData = {
 	  airtableRecordId: takeRec.id,
-	  takeID: tf.TakeID,
+	  takeID: tf.TakeID || takeRec.id,
 	  propID: tf.propID,
 	  propSide: tf.propSide,
 	  takeMobile: tf.takeMobile,
 	  takePopularity: tf.takePopularity || 0,
 	  createdTime: takeRec._rawJson.createdTime,
 	  takeStatus: tf.takeStatus || '',
+
+	  // If you have these from lookup fields, you can keep them:
+	  propTitle: tf.propTitle || '',
+	  subjectTitle: tf.subjectTitle || '',
+	  propSideAShort: tf.propSideAShort || 'Side A',
+	  propSideBShort: tf.propSideBShort || 'Side B',
 	};
 
+	// 2) If we want the actual prop & content, do a minimal second query to "Props"
+	let propData = null;
+	let contentData = [];
+
+	if (tf.propID) {
+	  const propsFound = await base('Props')
+		.select({
+		  filterByFormula: `{propID} = "${tf.propID}"`,
+		  maxRecords: 1,
+		})
+		.all();
+
+	  if (propsFound.length > 0) {
+		const p = propsFound[0];
+		const pf = p.fields;
+
+		// Build "prop" object
+		propData = {
+		  airtableRecordId: p.id,
+		  propID: pf.propID,
+		  propShort: pf.propShort || '',
+		  PropSideAShort: pf.PropSideAShort || 'Side A',
+		  PropSideBShort: pf.PropSideBShort || 'Side B',
+		  propStatus: pf.propStatus || 'open',
+		  propSubjectID: pf.propSubjectID || '',
+		  propTitle: pf.propTitle || '',
+		  propLong: pf.propLong || '',
+		};
+
+		// Content arrays from "Props" lookups
+		const contentTitles = pf.contentTitles || [];
+		const contentURLs = pf.contentURLs || [];
+		contentData = contentTitles.map((title, i) => ({
+		  contentTitle: title,
+		  contentURL: contentURLs[i] || '',
+		}));
+	  }
+	}
+
+	// 3) Return all in one response
 	res.json({
 	  success: true,
 	  take: takeData,
@@ -523,26 +440,26 @@ app.get('/api/takes/:takeID', async (req, res) => {
 	});
   } catch (err) {
 	console.error('[api/takes/:takeID] Error:', err);
-	return res.status(500).json({ error: 'Could not fetch take data. Please try again later.' });
+	return res
+	  .status(500)
+	  .json({ error: 'Could not fetch take data. Please try again later.' });
   }
 });
 
 // --------------------------------------
-// 7) GET /api/leaderboard (UPDATED to allow ?subjectID=... with includes check)
+// GET /api/leaderboard
 // --------------------------------------
 app.get('/api/leaderboard', async (req, res) => {
   try {
-	// 1) Load all Profiles => map phone => profileID
 	const allProfiles = await base('Profiles').select({ maxRecords: 5000 }).all();
 	const phoneToProfileID = new Map();
-	for (const p of allProfiles) {
+	allProfiles.forEach((p) => {
 	  const pf = p.fields;
 	  if (pf.profileMobile && pf.profileID) {
 		phoneToProfileID.set(pf.profileMobile, pf.profileID);
 	  }
-	}
+	});
 
-	// 2) Load all Takes, but exclude ones with {takeStatus} != "overwritten"
 	let allTakes = await base('Takes')
 	  .select({
 		maxRecords: 5000,
@@ -550,34 +467,26 @@ app.get('/api/leaderboard', async (req, res) => {
 	  })
 	  .all();
 
-	// 3) If we have ?subjectID=..., filter accordingly
 	const subjectID = req.query.subjectID || null;
 	if (subjectID) {
 	  allTakes = allTakes.filter((t) => {
-		// "propSubjectID" might be an array
 		const propSubj = t.fields.propSubjectID || [];
-		if (Array.isArray(propSubj)) {
-		  return propSubj.includes(subjectID);
-		} else {
-		  return propSubj === subjectID;
-		}
+		return Array.isArray(propSubj)
+		  ? propSubj.includes(subjectID)
+		  : propSubj === subjectID;
 	  });
 	}
 
-	// 4) Track the count & sum of takePTS
 	const phoneStats = new Map();
-	for (const t of allTakes) {
+	allTakes.forEach((t) => {
 	  const ph = t.fields.takeMobile || 'Unknown';
 	  const pts = t.fields.takePTS || 0;
 	  const current = phoneStats.get(ph) || { takes: 0, points: 0 };
-
 	  current.takes += 1;
 	  current.points += pts;
-
 	  phoneStats.set(ph, current);
-	}
+	});
 
-	// 5) Final array => sort by points desc
 	const leaderboard = Array.from(phoneStats.entries())
 	  .map(([phone, stats]) => ({
 		phone,
@@ -595,29 +504,25 @@ app.get('/api/leaderboard', async (req, res) => {
 });
 
 // --------------------------------------
-// 7.5) GET /api/subjectIDs (NEW route to get distinct propSubjectID values)
+// GET /api/subjectIDs
 // --------------------------------------
 app.get('/api/subjectIDs', async (req, res) => {
   try {
-	// 1) Load all Takes (not overwritten)
 	const takeRecords = await base('Takes').select({
 	  filterByFormula: '{takeStatus} != "overwritten"',
 	  maxRecords: 5000,
 	}).all();
 
-	// 2) Build a set of subject IDs from propSubjectID
 	const subjectSet = new Set();
-	for (const t of takeRecords) {
+	takeRecords.forEach((t) => {
 	  const subjField = t.fields.propSubjectID || [];
-	  // If it's an array, add each
 	  if (Array.isArray(subjField)) {
 		subjField.forEach((val) => subjectSet.add(val));
 	  } else if (typeof subjField === 'string') {
 		subjectSet.add(subjField);
 	  }
-	}
+	});
 
-	// 3) Convert set to array
 	const subjectIDs = Array.from(subjectSet);
 	res.json({ success: true, subjectIDs });
   } catch (err) {
@@ -627,66 +532,118 @@ app.get('/api/subjectIDs', async (req, res) => {
 });
 
 // --------------------------------------
-// 8) GET /api/profile/:profileID
+// GET /api/related-prop
 // --------------------------------------
-app.get('/api/profile/:profileID', async (req, res) => {
-  const { profileID } = req.params;
-  console.log(`[GET /api/profile/${profileID}] Starting lookup...`);
+app.get('/api/related-prop', async (req, res) => {
+  const { subjectID, profileID } = req.query;
+  if (!subjectID || !profileID) {
+	return res.status(400).json({ success: false, error: 'Missing parameters' });
+  }
 
   try {
-	// 1) Find the single matching profile
-	const found = await base('Profiles')
+	// 1) Find all Props matching the given subjectID
+	const propsFound = await base('Props')
 	  .select({
-		filterByFormula: `{profileID}='${profileID}'`,
+		filterByFormula: `{propSubjectID}="${subjectID}"`,
+		maxRecords: 100,
+	  })
+	  .all();
+
+	// 2) Load the user’s Profile
+	const profileRecords = await base('Profiles')
+	  .select({
+		filterByFormula: `{profileID}="${profileID}"`,
 		maxRecords: 1,
 	  })
 	  .all();
 
-	if (!found || found.length === 0) {
-	  return res.status(404).json({ error: 'Profile not found' });
+	let takenPropIDs = [];
+
+	// 3) If the user has any Takes, fetch them all in ONE query
+	if (profileRecords.length > 0) {
+	  const profRec = profileRecords[0];
+	  if (Array.isArray(profRec.fields.Takes) && profRec.fields.Takes.length > 0) {
+		const recordIds = profRec.fields.Takes; // array of Take record IDs
+
+		// Build a single OR(...) filter, e.g. OR(RECORD_ID()="rec123", RECORD_ID()="rec456")
+		const orClauses = recordIds.map((id) => `RECORD_ID()="${id}"`).join(',');
+		const filterByFormula = `OR(${orClauses})`;
+
+		// Fetch all user’s Take records in one go
+		const takeRecords = await base('Takes')
+		  .select({
+			filterByFormula,
+			maxRecords: 5000,
+			// optional: fields: ['propID']  // if you only need propID
+		  })
+		  .all();
+
+		// Collect all the propIDs from those Takes
+		takenPropIDs = takeRecords
+		  .map((t) => t.fields.propID)
+		  .filter(Boolean); // remove any undefined
+		takenPropIDs = [...new Set(takenPropIDs)]; // remove duplicates
+	  }
 	}
+
+	// 4) Filter out Props that the user has already taken
+	const availableProps = propsFound.filter((propRec) => {
+	  const pf = propRec.fields;
+	  return !takenPropIDs.includes(pf.propID);
+	});
+
+	// 5) Return either the first available prop or messages accordingly
+	if (availableProps.length > 0) {
+	  return res.json({ success: true, prop: availableProps[0].fields });
+	} else if (propsFound.length > 0) {
+	  return res.json({
+		success: true,
+		prop: null,
+		message: 'No more props available, good job!',
+	  });
+	} else {
+	  return res.json({ success: false, error: 'No prop found' });
+	}
+  } catch (err) {
+	console.error('[GET /api/related-prop] Error:', err);
+	return res.status(500).json({ success: false, error: 'Server error' });
+  }
+});
+
+
+// --------------------------------------
+// GET /api/profile/:profileID
+// --------------------------------------
+app.get('/api/profile/:profileID', async (req, res) => {
+  const { profileID } = req.params;
+  try {
+	const found = await base('Profiles')
+	  .select({ filterByFormula: `{profileID}="${profileID}"`, maxRecords: 1 })
+	  .all();
+
+	if (found.length === 0) return res.status(404).json({ error: 'Profile not found' });
 
 	const profRec = found[0];
 	const pf = profRec.fields;
 
-	// 2) Build a filter to fetch all relevant Takes
 	let userTakes = [];
 	if (Array.isArray(pf.Takes) && pf.Takes.length > 0) {
-	  const filterByFormula = `OR(${pf.Takes.map(
-		(id) => `RECORD_ID() = '${id}'`
-	  ).join(',')})`;
-
+	  const filterByFormula = `OR(${pf.Takes.map((id) => `RECORD_ID()='${id}'`).join(',')})`;
 	  const takeRecords = await base('Takes')
 		.select({ filterByFormula, maxRecords: 5000 })
 		.all();
 
-	  // 3) Map the take data, skip any with takeStatus="overwritten"
 	  userTakes = takeRecords
 		.filter((t) => t.fields.takeStatus !== 'overwritten')
 		.map((t) => {
 		  const tf = t.fields;
-
-		  // Derive a side label if needed
-		  let sideLabel = '';
-		  if (tf.propSide === 'A') {
-			sideLabel = tf.propSideAShort || 'Side A';
-		  } else if (tf.propSide === 'B') {
-			sideLabel = tf.propSideBShort || 'Side B';
-		  }
-
-		  let contentImageUrl = '';
-		  if (Array.isArray(tf.contentImage) && tf.contentImage.length > 0) {
-			contentImageUrl = tf.contentImage[0].url;
-		  }
-
 		  return {
 			airtableRecordId: t.id,
 			takeID: tf.TakeID || t.id,
 			propID: tf.propID || '',
 			propSide: tf.propSide || null,
-			sideLabel,
 			propTitle: tf.propTitle || '',
-			contentImageUrl,
+			subjectTitle: tf.subjectTitle || '',
 			takePopularity: tf.takePopularity || 0,
 			createdTime: t._rawJson.createdTime,
 			takeStatus: tf.takeStatus || '',
@@ -694,7 +651,6 @@ app.get('/api/profile/:profileID', async (req, res) => {
 		});
 	}
 
-	// 4) Prepare the final profile object
 	const profileData = {
 	  airtableRecordId: profRec.id,
 	  profileID: pf.profileID,
@@ -703,8 +659,7 @@ app.get('/api/profile/:profileID', async (req, res) => {
 	  createdTime: profRec._rawJson.createdTime,
 	};
 
-	// 5) Return the JSON
-	res.json({
+	return res.json({
 	  success: true,
 	  profile: profileData,
 	  totalTakes: userTakes.length,
@@ -712,45 +667,36 @@ app.get('/api/profile/:profileID', async (req, res) => {
 	});
   } catch (err) {
 	console.error('[GET /api/profile/:profileID] Error:', err);
-	res.status(500).json({ error: 'Server error fetching profile' });
+	return res.status(500).json({ error: 'Server error fetching profile' });
   }
 });
 
 // --------------------------------------
-// 9) GET /api/feed (optional feed of takes)
+// GET /api/feed
 // --------------------------------------
 app.get('/api/feed', async (req, res) => {
   try {
 	const takeRecords = await base('Takes')
-	  .select({
-		maxRecords: 20,
-		sort: [{ field: 'Created', direction: 'desc' }],
-	  })
+	  .select({ maxRecords: 20, sort: [{ field: 'Created', direction: 'desc' }] })
 	  .all();
 
-	const feed = takeRecords.map((t) => {
-	  const tf = t.fields;
-	  return {
-		takeID: tf.TakeID || t.id,
-		propID: tf.propID,
-		propSide: tf.propSide,
-		createdTime: t._rawJson.createdTime,
-		takePopularity: tf.takePopularity || 0,
-	  };
-	});
+	const feed = takeRecords.map((t) => ({
+	  takeID: t.fields.TakeID || t.id,
+	  propID: t.fields.propID,
+	  propSide: t.fields.propSide,
+	  createdTime: t._rawJson.createdTime,
+	  takePopularity: t.fields.takePopularity || 0,
+	}));
 
 	return res.json({ success: true, feed });
   } catch (err) {
 	console.error('[api/feed] error:', err);
-	return res.status(500).json({
-	  success: false,
-	  error: 'Server error fetching feed',
-	});
+	return res.status(500).json({ success: false, error: 'Server error fetching feed' });
   }
 });
 
 // --------------------------------------
-// 9.5) GET /api/takes
+// GET /api/takes
 // --------------------------------------
 app.get('/api/takes', async (req, res) => {
   try {
@@ -768,113 +714,37 @@ app.get('/api/takes', async (req, res) => {
 	  createdTime: t._rawJson.createdTime,
 	}));
 
-	res.json({
-	  success: true,
-	  takes: allTakes,
-	});
+	return res.json({ success: true, takes: allTakes });
   } catch (err) {
 	console.error('[GET /api/takes] Error:', err);
-	res.status(500).json({
-	  success: false,
-	  error: 'Server error fetching takes',
-	});
+	return res.status(500).json({ success: false, error: 'Server error fetching takes' });
   }
 });
 
 // --------------------------------------
-// 10) GET /api/props
+// GET /api/props
 // --------------------------------------
 app.get('/api/props', async (req, res) => {
   try {
 	const propsRecords = await base('Props')
-	  .select({
-		view: 'Grid view',
-		maxRecords: 100,
-	  })
+	  .select({ view: 'Grid view', maxRecords: 100 })
 	  .all();
-
-	const subjectIDs = new Set();
-	const propIDs = new Set();
-
-	for (const propRec of propsRecords) {
-	  const f = propRec.fields;
-	  if (f.propSubjectID) {
-		subjectIDs.add(f.propSubjectID);
-	  }
-	  if (f.propID) {
-		propIDs.add(f.propID);
-	  }
-	}
-
-	let subjectsMap = new Map();
-	if (subjectIDs.size > 0) {
-	  const subFilter = `OR(${[...subjectIDs]
-		.map((id) => `{subjectID} = "${id}"`)
-		.join(',')})`;
-
-	  const subjectRecords = await base('Subjects')
-		.select({
-		  filterByFormula: subFilter,
-		  maxRecords: 500,
-		})
-		.all();
-
-	  for (const subRec of subjectRecords) {
-		const sf = subRec.fields;
-		const subjID = sf.subjectID;
-		if (!subjID) continue;
-		subjectsMap.set(subjID, {
-		  subjectTitle: sf.subjectTitle || '',
-		  subjectLogo: Array.isArray(sf.subjectLogo) ? sf.subjectLogo : [],
-		});
-	  }
-	}
-
-	let contentMap = new Map();
-	if (propIDs.size > 0) {
-	  const contentFilter = `OR(${[...propIDs]
-		.map((id) => `{propID} = "${id}"`)
-		.join(',')})`;
-
-	  const contentRecords = await base('Content')
-		.select({
-		  filterByFormula: contentFilter,
-		  maxRecords: 500,
-		})
-		.all();
-
-	  for (const cRec of contentRecords) {
-		const cf = cRec.fields;
-		const cPropID = cf.propID;
-		if (!cPropID) continue;
-
-		const contentItem = {
-		  contentTitle: cf.contentTitle || '',
-		  contentURL: cf.contentURL || '',
-		};
-		if (!contentMap.has(cPropID)) {
-		  contentMap.set(cPropID, []);
-		}
-		contentMap.get(cPropID).push(contentItem);
-	  }
-	}
 
 	const propsData = propsRecords.map((propRec) => {
 	  const f = propRec.fields;
 	  const createdAt = propRec._rawJson.createdTime;
 
-	  const subID = f.propSubjectID || '';
-	  let subjectTitle = '';
 	  let subjectLogoUrl = '';
-	  const subjObj = subjectsMap.get(subID);
-	  if (subjObj) {
-		subjectTitle = subjObj.subjectTitle;
-		if (subjObj.subjectLogo.length > 0) {
-		  subjectLogoUrl = subjObj.subjectLogo[0].url;
-		}
+	  if (Array.isArray(f.subjectLogo) && f.subjectLogo.length > 0) {
+		subjectLogoUrl = f.subjectLogo[0].url || '';
 	  }
 
-	  const cArr = contentMap.get(f.propID) || [];
+	  const contentTitles = f.contentTitles || [];
+	  const contentURLs = f.contentURLs || [];
+	  const cArr = contentTitles.map((title, i) => ({
+		contentTitle: title,
+		contentURL: contentURLs[i] || '',
+	  }));
 
 	  return {
 		propID: f.propID,
@@ -883,12 +753,9 @@ app.get('/api/props', async (req, res) => {
 		propLong: f.propLong || '',
 		propStatus: f.propStatus || 'open',
 		createdAt,
-
 		PropSideAShort: f.PropSideAShort || 'Side A',
 		PropSideBShort: f.PropSideBShort || 'Side B',
-
-		subjectID: subID,
-		subjectTitle,
+		subjectTitle: f.subjectTitle || '',
 		subjectLogoUrl,
 		content: cArr,
 	  };
@@ -902,14 +769,14 @@ app.get('/api/props', async (req, res) => {
 });
 
 // --------------------------------------
-// 11) Catch-all => serve index.html
+// Catch-all => serve index.html
 // --------------------------------------
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'build', 'index.html'));
 });
 
 // --------------------------------------
-// 12) Start server
+// Start server
 // --------------------------------------
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {

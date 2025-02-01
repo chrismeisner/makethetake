@@ -1,11 +1,12 @@
 // File: src/VerificationWidget.js
-
 import React, { useContext, useState, useEffect } from 'react';
 import InputMask from 'react-input-mask';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { UserContext } from './UserContext';
 
+// --------------------------------------
 // 1) Helper to compute side A/B percentages (with +1 offset)
+// --------------------------------------
 function computeSidePercents(aCount, bCount) {
   const aWithOffset = aCount + 1;
   const bWithOffset = bCount + 1;
@@ -15,7 +16,9 @@ function computeSidePercents(aCount, bCount) {
   return { aPct, bPct };
 }
 
-// 2) Choice component (supports gradedSide => ✅/❌)
+// --------------------------------------
+// 2) Choice component
+// --------------------------------------
 function Choice({
   label,
   percentage,
@@ -25,14 +28,41 @@ function Choice({
   anySideSelected,
   showResults,
   propStatus,
-  onSelect
+  onSelect,
+  highlightUser = false,
+  userSide = '',      // The user's verified side (if any)
+  selectedChoice = '' // The user's current selection
 }) {
   const [isHovered, setIsHovered] = useState(false);
+
+  // If the user has a verified side, check if this is that side
+  const isVerifiedSide = userSide && sideValue === userSide;
+  // The contrarian side is whenever selectedChoice != userSide
+  const hasSelectedContrarian = userSide && selectedChoice && selectedChoice !== userSide;
+
+  // Decide if we allow clicking:
+  // - Only open props are clickable.
+  // - If user has no verified side => both sides are clickable
+  // - If this side is the verified side => clickable only if user has "selected contrarian" (so we can flip back)
+  // - If it's the contrarian side => always clickable if open
+  let clickable = false;
+  if (propStatus === 'open') {
+	if (!userSide) {
+	  clickable = true; // no verified side => everything is clickable
+	} else if (isVerifiedSide) {
+	  clickable = hasSelectedContrarian; // only clickable if user is currently messing with contrarian
+	} else {
+	  // contrarian side => always clickable if open
+	  clickable = true;
+	}
+  }
+
   const backgroundColor = !anySideSelected ? '#f9f9f9' : '#ffffff';
   const outlineStyle = isSelected ? '2px solid #3b82f6' : 'none';
   const baseBorder = '1px solid #ddd';
   const hoverBorder = '1px solid #aaa';
-  const clickable = propStatus === 'open';
+
+  // For the fill bar
   const fillOpacity = showResults ? (isSelected ? 1 : 0.4) : 0;
   const fillColor = `rgba(219, 234, 254, ${fillOpacity})`;
   const fillWidth = showResults ? `${percentage}%` : '0%';
@@ -41,10 +71,15 @@ function Choice({
   let displayedLabel = label;
   if (gradedSide) {
 	if (sideValue === gradedSide) {
-	  displayedLabel = '✅ ' + label;
+	  displayedLabel = '✅ ' + displayedLabel;
 	} else {
-	  displayedLabel = '❌ ' + label;
+	  displayedLabel = '❌ ' + displayedLabel;
 	}
+  }
+
+  // If highlightUser => prepend "🏴‍☠️"
+  if (highlightUser) {
+	displayedLabel = '🏴‍☠️ ' + displayedLabel;
   }
 
   return (
@@ -66,7 +101,7 @@ function Choice({
 		transition: 'border-color 0.2s ease'
 	  }}
 	>
-	  {/* Fill bar for percentages */}
+	  {/* Fill bar for results */}
 	  <div
 		style={{
 		  position: 'absolute',
@@ -87,7 +122,9 @@ function Choice({
   );
 }
 
-// 3) PropChoices (pass gradedSide if needed)
+// --------------------------------------
+// 3) PropChoices
+// --------------------------------------
 function PropChoices({
   propStatus,
   gradedSide = '',
@@ -97,7 +134,8 @@ function PropChoices({
   sideAPct,
   sideBPct,
   sideALabel,
-  sideBLabel
+  sideBLabel,
+  userSide = ''
 }) {
   const anySideSelected = selectedChoice !== '';
   const choices = [
@@ -109,6 +147,8 @@ function PropChoices({
 	<div style={{ marginBottom: '1rem' }}>
 	  {choices.map((choice) => {
 		const isSelected = selectedChoice === choice.value;
+		const highlightUser = userSide === choice.value;
+
 		return (
 		  <Choice
 			key={choice.value}
@@ -121,6 +161,9 @@ function PropChoices({
 			showResults={resultsRevealed}
 			propStatus={propStatus}
 			onSelect={() => onSelectChoice(choice.value)}
+			highlightUser={highlightUser}
+			userSide={userSide}           
+			selectedChoice={selectedChoice}
 		  />
 		);
 	  })}
@@ -128,7 +171,9 @@ function PropChoices({
   );
 }
 
+// --------------------------------------
 // 4) PhoneNumberForm
+// --------------------------------------
 function PhoneNumberForm({ phoneNumber, onSubmit, selectedChoice }) {
   const [localPhone, setLocalPhone] = useState(phoneNumber);
   const numericPhone = localPhone.replace(/\D/g, '');
@@ -188,7 +233,9 @@ function PhoneNumberForm({ phoneNumber, onSubmit, selectedChoice }) {
   );
 }
 
+// --------------------------------------
 // 5) VerificationForm
+// --------------------------------------
 function VerificationForm({ phoneNumber, selectedChoice, propID, onComplete }) {
   const [localCode, setLocalCode] = useState('');
   const { setLoggedInUser } = useContext(UserContext);
@@ -200,6 +247,7 @@ function VerificationForm({ phoneNumber, selectedChoice, propID, onComplete }) {
 	  return;
 	}
 	try {
+	  // 1) Verify the code
 	  const verifyResp = await fetch('/api/verifyCode', {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
@@ -210,12 +258,15 @@ function VerificationForm({ phoneNumber, selectedChoice, propID, onComplete }) {
 		console.error('Code verification failed');
 		return;
 	  }
+
+	  // 2) If verified, fetch /api/me
 	  const meResp = await fetch('/api/me', { credentials: 'include' });
 	  const meData = await meResp.json();
 	  if (meData.loggedIn && meData.user) {
 		setLoggedInUser(meData.user);
 	  }
 
+	  // 3) Create the take
 	  const takeBody = {
 		takeMobile: phoneNumber,
 		propID,
@@ -235,6 +286,8 @@ function VerificationForm({ phoneNumber, selectedChoice, propID, onComplete }) {
 		console.error('Failed to create the take');
 		return;
 	  }
+
+	  // 4) Fire parent callback
 	  onComplete(takeData.newTakeID, {
 		success: true,
 		sideACount: takeData.sideACount,
@@ -286,17 +339,34 @@ function VerificationForm({ phoneNumber, selectedChoice, propID, onComplete }) {
   );
 }
 
+// --------------------------------------
 // 6) MakeTakeButton
-function MakeTakeButton({ selectedChoice, propID, onTakeComplete, loggedInUser }) {
+// --------------------------------------
+function MakeTakeButton({
+  selectedChoice,
+  propID,
+  onTakeComplete,
+  loggedInUser,
+  alreadyTookSide
+}) {
   const [confirming, setConfirming] = useState(false);
-  const disabled = !selectedChoice;
-  const buttonText = confirming ? 'Tap to Confirm' : 'Make Take';
+
+  // If user has no selection or is picking the same verified side => disabled
+  const userHasExistingTake = !!alreadyTookSide;
+  const isSameSideAsVerified = userHasExistingTake && selectedChoice === alreadyTookSide;
+  const disabled = !selectedChoice || isSameSideAsVerified;
+
+  // Conditionally set the button label
+  const buttonLabel = userHasExistingTake ? 'Update Take' : 'Make The Take';
 
   async function handleClick() {
+	// First click => set "confirming"
 	if (!confirming) {
 	  setConfirming(true);
 	  return;
 	}
+
+	// Second click => perform the take or update
 	try {
 	  const body = {
 		takeMobile: loggedInUser.phone,
@@ -310,7 +380,7 @@ function MakeTakeButton({ selectedChoice, propID, onTakeComplete, loggedInUser }
 		body: JSON.stringify(body)
 	  });
 	  if (!resp.ok) {
-		console.error('Failed to create take');
+		console.error('Failed to create/update take');
 		setConfirming(false);
 		return;
 	  }
@@ -320,11 +390,14 @@ function MakeTakeButton({ selectedChoice, propID, onTakeComplete, loggedInUser }
 		setConfirming(false);
 		return;
 	  }
+
+	  // Fire callback
 	  onTakeComplete(data.newTakeID, {
 		success: true,
 		sideACount: data.sideACount,
 		sideBCount: data.sideBCount
 	  });
+	  setConfirming(false);
 	} catch (error) {
 	  console.error('[MakeTakeButton] Error:', error);
 	  setConfirming(false);
@@ -342,7 +415,7 @@ function MakeTakeButton({ selectedChoice, propID, onTakeComplete, loggedInUser }
 			: 'bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700'
 		}
 	  >
-		{buttonText}
+		{buttonLabel}
 	  </button>
 	  {confirming && !disabled && (
 		<span style={{ color: 'blue', marginLeft: '0.5rem' }}>
@@ -353,11 +426,11 @@ function MakeTakeButton({ selectedChoice, propID, onTakeComplete, loggedInUser }
   );
 }
 
+// --------------------------------------
 // 7) CompleteStep
+// --------------------------------------
 function CompleteStep({ takeID }) {
-  if (!takeID) {
-	return null;
-  }
+  if (!takeID) return null;
   const takeUrl = window.location.origin + '/takes/' + takeID;
   const tweetText = `I just made my take! Check it out:\n\n${takeUrl} #MakeTheTake`;
   const tweetHref = `https://twitter.com/intent/tweet?text=${encodeURIComponent(tweetText)}`;
@@ -385,9 +458,15 @@ function CompleteStep({ takeID }) {
   );
 }
 
+// --------------------------------------
 // 8) Main VerificationWidget
-export default function VerificationWidget({ embeddedPropID }) {
+// --------------------------------------
+export default function VerificationWidget({
+  embeddedPropID,
+  redirectOnSuccess = false // determines whether we redirect or stay in widget
+}) {
   const { loggedInUser } = useContext(UserContext);
+  const navigate = useNavigate();
 
   // For building ?redirect=...
   const location = useLocation();
@@ -463,18 +542,25 @@ export default function VerificationWidget({ embeddedPropID }) {
 	}
   }, [propData, userTakes]);
 
+  // Once a new take is created or updated
   function handleComplete(newTakeID, freshData) {
-	setTakeID(newTakeID);
 	if (freshData && freshData.success) {
 	  setSideACount(freshData.sideACount || 0);
 	  setSideBCount(freshData.sideBCount || 0);
 	}
-	setLastUpdated(new Date());
-	setCurrentStep('complete');
+
+	if (redirectOnSuccess) {
+	  navigate(`/takes/${newTakeID}`);
+	} else {
+	  setTakeID(newTakeID);
+	  setCurrentStep('complete');
+	}
   }
 
+  // Local selection only
   function handleSelectChoice(choiceValue) {
 	if (choiceValue === selectedChoice) {
+	  // if user re-clicks same side => deselect
 	  setSelectedChoice('');
 	  setResultsRevealed(false);
 	} else {
@@ -483,6 +569,9 @@ export default function VerificationWidget({ embeddedPropID }) {
 	}
   }
 
+  // --------------------------------------
+  // Rendering
+  // --------------------------------------
   if (loading) {
 	return <div style={{ padding: '2rem' }}>Loading proposition...</div>;
   }
@@ -494,13 +583,23 @@ export default function VerificationWidget({ embeddedPropID }) {
   const { aPct, bPct } = computeSidePercents(sideACount, sideBCount);
   const totalTakes = sideACount + sideBCount + 2;
 
-  // Non-open scenario (graded, closed, etc.) but not after new take
-  if (propStatus !== 'open' && currentStep !== 'complete') {
+  // #1 Non-open scenario (graded or closed) and not after new take
+  //    => No more voting, just show final or partial results
+  if (
+	(propStatus === 'gradedA' ||
+	 propStatus === 'gradedB' ||
+	 propStatus === 'closed') &&
+	currentStep !== 'complete'
+  ) {
 	let gradedSide = '';
+	let isClosed = false;
 	if (propStatus === 'gradedA') {
 	  gradedSide = 'A';
 	} else if (propStatus === 'gradedB') {
 	  gradedSide = 'B';
+	} else if (propStatus === 'closed') {
+	  // "closed" means no picks, but not yet graded
+	  isClosed = true;
 	}
 
 	let userSide = '';
@@ -514,6 +613,12 @@ export default function VerificationWidget({ embeddedPropID }) {
 	if (userTakeLink) {
 	  const tweetText = `Check out my take here:\n\n${userTakeLink} #MakeTheTake`;
 	  tweetHref = `https://twitter.com/intent/tweet?text=${encodeURIComponent(tweetText)}`;
+	}
+
+	// Customized messaging for "closed" vs "graded"
+	let statusMessage = 'No more voting. Here are the final results:';
+	if (isClosed) {
+	  statusMessage = 'No more voting while we wait for a final result. Here’s the partial tally so far:';
 	}
 
 	return (
@@ -531,9 +636,7 @@ export default function VerificationWidget({ embeddedPropID }) {
 			  {propData.propShort}
 			</Link>
 		  </h2>
-		  <p>
-			This prop is '{propStatus}'. No more voting. Here are the final results:
-		  </p>
+		  <p>{statusMessage}</p>
 
 		  {alreadyTookTakeID && (
 			<>
@@ -558,9 +661,12 @@ export default function VerificationWidget({ embeddedPropID }) {
 			</>
 		  )}
 
-		  <p style={{ marginTop: '1rem', fontWeight: 'bold' }}>Total Takes: {totalTakes}</p>
+		  <p style={{ marginTop: '1rem', fontWeight: 'bold' }}>
+			Total Takes: {totalTakes}
+		  </p>
+
 		  <PropChoices
-			propStatus="graded"
+			propStatus={isClosed ? 'closed' : 'graded'}
 			gradedSide={gradedSide}
 			selectedChoice={userSide}
 			resultsRevealed={true}
@@ -569,16 +675,15 @@ export default function VerificationWidget({ embeddedPropID }) {
 			sideBPct={bPct}
 			sideALabel={propData.PropSideAShort}
 			sideBLabel={propData.PropSideBShort}
+			userSide={userSide}
 		  />
 
-		  {/* If not logged in => show link to log in with ?redirect=... */}
+		  {/* No voting button or phone form for closed/graded states */}
+
 		  {!loggedInUser && (
 			<p style={{ marginTop: '1rem', fontSize: '0.9rem' }}>
 			  Already made this take?{' '}
-			  <Link
-				to={`/login?redirect=${redirectPath}`}
-				className="text-blue-600 underline"
-			  >
+			  <Link to={`/login?redirect=${redirectPath}`} className="text-blue-600 underline">
 				Log in to see it
 			  </Link>
 			</p>
@@ -592,8 +697,8 @@ export default function VerificationWidget({ embeddedPropID }) {
 	);
   }
 
-  // If user already took a "latest" take in open scenario
-  if (alreadyTookTakeID && currentStep !== 'complete') {
+  // #2 If user already took a "latest" take, prop is open, not after new
+  if (alreadyTookTakeID && propStatus === 'open' && currentStep !== 'complete') {
 	const { aPct: existingA, bPct: existingB } = computeSidePercents(sideACount, sideBCount);
 	const existingTotal = sideACount + sideBCount + 2;
 	const takeUrl = window.location.origin + '/takes/' + alreadyTookTakeID;
@@ -615,7 +720,7 @@ export default function VerificationWidget({ embeddedPropID }) {
 			  {propData.propShort}
 			</Link>
 		  </h2>
-		  <p>You’ve Already Made This Take.</p>
+		  <p>You’ve Already Made This Take (the prop is open, so feel free to change):</p>
 		  <p>
 			<a href={`/takes/${alreadyTookTakeID}`} target="_blank" rel="noreferrer">
 			  View your existing take here
@@ -631,20 +736,32 @@ export default function VerificationWidget({ embeddedPropID }) {
 			  Tweet this take
 			</a>
 		  </p>
+
 		  <p style={{ marginTop: '1rem', fontWeight: 'bold' }}>
 			Total Takes: {existingTotal}
 		  </p>
+
 		  <PropChoices
-			propStatus="alreadyTook"
-			gradedSide=""
-			selectedChoice={alreadyTookSide}
+			propStatus="open"
+			selectedChoice={selectedChoice}
 			resultsRevealed={true}
-			onSelectChoice={() => {}}
+			onSelectChoice={handleSelectChoice}
 			sideAPct={existingA}
 			sideBPct={existingB}
 			sideALabel={propData.PropSideAShort}
 			sideBLabel={propData.PropSideBShort}
+			userSide={alreadyTookSide}
 		  />
+
+		  {loggedInUser && (
+			<MakeTakeButton
+			  selectedChoice={selectedChoice}
+			  propID={propData.propID}
+			  onTakeComplete={handleComplete}
+			  loggedInUser={loggedInUser}
+			  alreadyTookSide={alreadyTookSide}
+			/>
+		  )}
 
 		  {!loggedInUser && (
 			<p style={{ marginTop: '1rem', fontSize: '0.9rem' }}>
@@ -663,7 +780,7 @@ export default function VerificationWidget({ embeddedPropID }) {
 	);
   }
 
-  // If user just completed => final step
+  // #3 If user just completed => final step
   if (currentStep === 'complete') {
 	const { aPct: freshA, bPct: freshB } = computeSidePercents(sideACount, sideBCount);
 	const freshTotal = sideACount + sideBCount + 2;
@@ -687,17 +804,29 @@ export default function VerificationWidget({ embeddedPropID }) {
 		  <p style={{ marginTop: '1rem', fontWeight: 'bold' }}>
 			Total Takes: {freshTotal}
 		  </p>
+
 		  {selectedChoice && (
 			<PropChoices
-			  propStatus="alreadyTook"
+			  propStatus={propStatus === 'open' ? 'open' : 'alreadyTook'}
 			  gradedSide=""
 			  selectedChoice={selectedChoice}
 			  resultsRevealed={true}
-			  onSelectChoice={() => {}}
+			  onSelectChoice={propStatus === 'open' ? handleSelectChoice : () => {}}
 			  sideAPct={freshA}
 			  sideBPct={freshB}
 			  sideALabel={propData.PropSideAShort}
 			  sideBLabel={propData.PropSideBShort}
+			  userSide={selectedChoice}
+			/>
+		  )}
+
+		  {propStatus === 'open' && loggedInUser && (
+			<MakeTakeButton
+			  selectedChoice={selectedChoice}
+			  propID={propData.propID}
+			  onTakeComplete={handleComplete}
+			  loggedInUser={loggedInUser}
+			  alreadyTookSide={selectedChoice}
 			/>
 		  )}
 
@@ -718,7 +847,7 @@ export default function VerificationWidget({ embeddedPropID }) {
 	);
   }
 
-  // Otherwise => normal open scenario
+  // #4 Otherwise => normal open scenario
   return (
 	<div style={{ padding: '2rem', maxWidth: '600px', margin: '0 auto' }}>
 	  <div
@@ -745,6 +874,7 @@ export default function VerificationWidget({ embeddedPropID }) {
 		  sideBPct={bPct}
 		  sideALabel={propData.PropSideAShort}
 		  sideBLabel={propData.PropSideBShort}
+		  userSide=""
 		/>
 
 		<div style={{ marginTop: '1rem', fontWeight: 'bold' }}>
@@ -757,6 +887,7 @@ export default function VerificationWidget({ embeddedPropID }) {
 			propID={propData.propID}
 			onTakeComplete={handleComplete}
 			loggedInUser={loggedInUser}
+			alreadyTookSide={alreadyTookSide}
 		  />
 		) : (
 		  <>
