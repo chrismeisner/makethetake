@@ -6,7 +6,7 @@ const express = require('express');
 const twilio = require('twilio');
 const Airtable = require('airtable');
 const session = require('express-session');
-const puppeteer = require('puppeteer'); // NEW: Puppeteer for screenshot generation
+const puppeteer = require('puppeteer'); // Puppeteer for screenshot generation
 
 const app = express();
 app.use(express.json());
@@ -181,11 +181,13 @@ app.get('/api/prop', async (req, res) => {
 	const pf = propRec.fields;
 	const createdAt = propRec._rawJson.createdTime;
 
+	// Extract the first image from the "subjectLogo" field.
 	let subjectLogoUrl = '';
 	if (pf.subjectLogo && Array.isArray(pf.subjectLogo) && pf.subjectLogo.length > 0) {
 	  subjectLogoUrl = pf.subjectLogo[0].url || '';
 	}
 
+	// For the content image, use the lookup field "contentImage" and take the first image.
 	let contentImageUrl = '';
 	if (Array.isArray(pf.contentImage) && pf.contentImage.length > 0) {
 	  contentImageUrl = pf.contentImage[0].url || '';
@@ -221,7 +223,7 @@ app.get('/api/prop', async (req, res) => {
 	return res.json({
 	  success: true,
 	  propID,
-	  // Send all fields from Airtable record along with computed values:
+	  // Send all fields from the Airtable record along with computed values:
 	  ...pf,
 	  createdAt,
 	  subjectLogoUrl,
@@ -785,19 +787,14 @@ app.get('/api/props', async (req, res) => {
 });
 
 // --------------------------------------
-// NEW ENDPOINT: Generate Cover Image with Puppeteer Template Approach
+// NEW ENDPOINT: Generate Cover Image with Puppeteer Template Approach (Simplified)
 // --------------------------------------
 app.get('/api/propCoverPuppeteer', async (req, res) => {
-  const { propTitle, backgroundURL } = req.query;
-  // Use defaults if not provided
-  const title = propTitle || 'Default Title';
-  const bgURL = backgroundURL || ''; // If you have a default background image, you can set it here
-
-  // Log the full URL of the request for debugging purposes.
+  // We no longer use any query parameters.
+  // This endpoint always returns an image with a red background.
   const fullURL = `${req.protocol}://${req.get('host')}${req.originalUrl}`;
   console.log(`[propCoverPuppeteer] Request URL: ${fullURL}`);
 
-  // Create an HTML template
   const htmlContent = `
 	<!DOCTYPE html>
 	<html>
@@ -809,41 +806,25 @@ app.get('/api/propCoverPuppeteer', async (req, res) => {
 			padding: 0;
 			width: 900px;
 			height: 600px;
-			display: flex;
-			align-items: center;
-			justify-content: center;
-			background: ${bgURL ? `url('${bgURL}') center/cover` : 'black'};
-			font-family: sans-serif;
-		  }
-		  .cover {
-			color: white;
-			font-size: 48px;
-			text-align: center;
-			padding: 20px;
+			background: red;
 		  }
 		</style>
 	  </head>
 	  <body>
-		<div class="cover">${title}</div>
 	  </body>
 	</html>
   `;
 
   try {
-	// Launch Puppeteer
 	const browser = await puppeteer.launch({
 	  headless: true,
 	  args: ['--no-sandbox', '--disable-setuid-sandbox']
 	});
 	const page = await browser.newPage();
 	await page.setViewport({ width: 900, height: 600 });
-
-	// Load the HTML content via a data URL
 	await page.goto(`data:text/html;charset=UTF-8,${encodeURIComponent(htmlContent)}`, {
 	  waitUntil: 'networkidle0'
 	});
-
-	// Take a screenshot
 	const screenshotBuffer = await page.screenshot({ type: 'png' });
 	await browser.close();
 
@@ -854,7 +835,6 @@ app.get('/api/propCoverPuppeteer', async (req, res) => {
 	res.status(500).json({ error: 'Server error generating cover image with Puppeteer' });
   }
 });
-
 
 // --------------------------------------
 // Catch-all => serve index.html

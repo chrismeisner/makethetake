@@ -33,12 +33,12 @@ export default function PropDetailPage() {
   if (error) return <div style={{ color: 'red' }}>{error}</div>;
   if (!propData) return <div>Prop not found.</div>;
 
-  // Construct the cover image URL using the Puppeteer endpoint.
-  // For example, we pass the prop's short text (or title) as the "propTitle" query parameter.
-  // Optionally, if a background image is available (say from propData.contentImageUrl), we pass it as well.
-  const coverImageUrl = `${window.location.origin}/api/propCoverPuppeteer?propTitle=${encodeURIComponent(
-	propData.propShort || propData.propTitle
-  )}${propData.contentImageUrl ? `&backgroundURL=${encodeURIComponent(propData.contentImageUrl)}` : ''}`;
+  // Construct the cover image URL.
+  // Since the endpoint now always returns a red background, we don't append any query parameters.
+  const coverImageUrl = `${window.location.origin}/api/propCoverPuppeteer`;
+
+  // Log the generated cover image URL for debugging purposes
+  console.log('Cover image URL:', coverImageUrl);
 
   return (
 	<div style={{ padding: '1rem', maxWidth: '800px', margin: '0 auto' }}>
