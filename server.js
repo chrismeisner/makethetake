@@ -786,20 +786,16 @@ app.get('/api/props', async (req, res) => {
 
 // --------------------------------------
 // NEW ENDPOINT: Generate Cover Image with Puppeteer Template Approach
-// (For an HTML/CSS template-based image generation solution)
 // --------------------------------------
-/*
-  This endpoint demonstrates an approach where you create an HTML/CSS template
-  (with fixed dimensions, e.g., 900x600) and pass dynamic values (like propTitle and backgroundURL)
-  via query parameters. Puppeteer then renders this template and takes a screenshot.
-  
-  Note: For production use, consider caching and error handling.
-*/
 app.get('/api/propCoverPuppeteer', async (req, res) => {
   const { propTitle, backgroundURL } = req.query;
   // Use defaults if not provided
   const title = propTitle || 'Default Title';
   const bgURL = backgroundURL || ''; // If you have a default background image, you can set it here
+
+  // Log the full URL of the request for debugging purposes.
+  const fullURL = `${req.protocol}://${req.get('host')}${req.originalUrl}`;
+  console.log(`[propCoverPuppeteer] Request URL: ${fullURL}`);
 
   // Create an HTML template
   const htmlContent = `
@@ -836,7 +832,6 @@ app.get('/api/propCoverPuppeteer', async (req, res) => {
   try {
 	// Launch Puppeteer
 	const browser = await puppeteer.launch({
-	  // Use headless mode
 	  headless: true,
 	  args: ['--no-sandbox', '--disable-setuid-sandbox']
 	});
@@ -855,10 +850,11 @@ app.get('/api/propCoverPuppeteer', async (req, res) => {
 	res.setHeader('Content-Type', 'image/png');
 	res.send(screenshotBuffer);
   } catch (err) {
-	console.error('[api/propCoverPuppeteer] Error:', err);
+	console.error('[propCoverPuppeteer] Error:', err);
 	res.status(500).json({ error: 'Server error generating cover image with Puppeteer' });
   }
 });
+
 
 // --------------------------------------
 // Catch-all => serve index.html
