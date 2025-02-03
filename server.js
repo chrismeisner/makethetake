@@ -1,9 +1,12 @@
+// File: server.js
+
 require('dotenv').config();
 const path = require('path');
 const express = require('express');
 const twilio = require('twilio');
 const Airtable = require('airtable');
 const session = require('express-session');
+const puppeteer = require('puppeteer'); // NEW: Puppeteer for screenshot generation
 
 const app = express();
 app.use(express.json());
@@ -183,13 +186,11 @@ app.get('/api/prop', async (req, res) => {
 	  subjectLogoUrl = pf.subjectLogo[0].url || '';
 	}
 
-	// NEW: Grab the first attachment from contentImage if present
 	let contentImageUrl = '';
 	if (Array.isArray(pf.contentImage) && pf.contentImage.length > 0) {
 	  contentImageUrl = pf.contentImage[0].url || '';
 	}
 
-	// Build related-content array
 	const contentTitles = pf.contentTitles || [];
 	const contentURLs = pf.contentURLs || [];
 	const contentList = contentTitles.map((title, i) => ({
@@ -197,7 +198,6 @@ app.get('/api/prop', async (req, res) => {
 	  contentURL: contentURLs[i] || '',
 	}));
 
-	// Count the "Takes"
 	const allTakes = await base('Takes')
 	  .select({
 		filterByFormula: `AND({propID}="${propID}", {takeStatus} != "overwritten")`,
@@ -221,20 +221,11 @@ app.get('/api/prop', async (req, res) => {
 	return res.json({
 	  success: true,
 	  propID,
-	  propTitle: pf.propTitle || '',
-	  propSummary: pf.propSummary || '',
-	  propShort: pf.propShort || '',
-	  propLong: pf.propLong || '',
-	  propStatus: pf.propStatus || 'open',
+	  // Send all fields from Airtable record along with computed values:
+	  ...pf,
 	  createdAt,
-	  subjectTitle: pf.subjectTitle || '',
 	  subjectLogoUrl,
-	  // Include this in the response so the front-end can display it
 	  contentImageUrl,
-	  PropSideAShort: pf.PropSideAShort || 'Side A',
-	  PropSideBShort: pf.PropSideBShort || 'Side B',
-	  sideACount,
-	  sideBCount,
 	  propSideAPct,
 	  propSideBPct,
 	  content: contentList,
@@ -326,7 +317,7 @@ app.post('/api/take', async (req, res) => {
 		  takePopularity,
 		  Profile: [profile.airtableId],
 		  takeStatus: 'latest',
-		  Prop: [propRec.id], // link to the prop
+		  Prop: [propRec.id],
 		},
 	  },
 	]);
@@ -402,7 +393,6 @@ app.get('/api/takes/:takeID', async (req, res) => {
 	  propSideBShort: tf.propSideBShort || 'Side B',
 	};
 
-	// Optionally fetch the associated prop
 	let propData = null;
 	let contentData = [];
 
@@ -430,7 +420,6 @@ app.get('/api/takes/:takeID', async (req, res) => {
 		  propLong: pf.propLong || '',
 		};
 
-		// Also grab any "content" arrays
 		const contentTitles = pf.contentTitles || [];
 		const contentURLs = pf.contentURLs || [];
 		contentData = contentTitles.map((title, i) => ({
@@ -544,65 +533,87 @@ app.get('/api/subjectIDs', async (req, res) => {
 // --------------------------------------
 app.get('/api/related-prop', async (req, res) => {
   const { subjectID, profileID } = req.query;
-  if (!subjectID || !profileID) {
-	return res.status(400).json({ success: false, error: 'Missing parameters' });
+  console.log('[GET /api/related-prop] Received subjectID:', subjectID, 'and profileID:', profileID);
+
+  if (!subjectID) {
+	console.log('[GET /api/related-prop] Missing subjectID');
+	return res.status(400).json({ success: false, error: 'Missing subjectID' });
   }
 
   try {
-	// 1) Find all Props with given subjectID
+	console.log('[GET /api/related-prop] Querying Props table with propSubjectID =', subjectID);
 	const propsFound = await base('Props')
 	  .select({
 		filterByFormula: `{propSubjectID}="${subjectID}"`,
 		maxRecords: 100,
 	  })
 	  .all();
+	console.log('[GET /api/related-prop] Found', propsFound.length, 'props for subjectID:', subjectID);
 
-	// 2) Load the user’s Profile
+	if (propsFound.length === 0) {
+	  console.log('[GET /api/related-prop] No props found for subjectID:', subjectID);
+	  return res.json({ success: false, error: 'No props found for this subject' });
+	}
+
+	if (!profileID) {
+	  console.log('[GET /api/related-prop] No profileID provided; returning first available prop');
+	  return res.json({ success: true, prop: propsFound[0].fields });
+	}
+
+	console.log('[GET /api/related-prop] Querying Profiles table with profileID =', profileID);
 	const profileRecords = await base('Profiles')
 	  .select({
 		filterByFormula: `{profileID}="${profileID}"`,
 		maxRecords: 1,
 	  })
 	  .all();
+	if (profileRecords.length === 0) {
+	  console.log('[GET /api/related-prop] No profile found for profileID:', profileID);
+	  return res.json({ success: true, prop: propsFound[0].fields });
+	}
+	const profRec = profileRecords[0];
+	console.log('[GET /api/related-prop] Found profile:', profRec.fields);
 
 	let takenPropIDs = [];
-
-	// 3) If the user has Takes, gather them
-	if (profileRecords.length > 0) {
-	  const profRec = profileRecords[0];
-	  if (Array.isArray(profRec.fields.Takes) && profRec.fields.Takes.length > 0) {
-		const recordIds = profRec.fields.Takes;
-		const orClauses = recordIds.map((id) => `RECORD_ID()="${id}"`).join(',');
-		const filterByFormula = `OR(${orClauses})`;
-		const takeRecords = await base('Takes')
-		  .select({
-			filterByFormula,
-			maxRecords: 5000,
-		  })
-		  .all();
-		takenPropIDs = takeRecords
-		  .map((t) => t.fields.propID)
-		  .filter(Boolean);
-		takenPropIDs = [...new Set(takenPropIDs)];
-	  }
+	if (Array.isArray(profRec.fields.Takes) && profRec.fields.Takes.length > 0) {
+	  console.log('[GET /api/related-prop] Profile has Takes linked:', profRec.fields.Takes);
+	  const recordIds = profRec.fields.Takes;
+	  const orClauses = recordIds.map((id) => `RECORD_ID()="${id}"`).join(',');
+	  const filterByFormula = `OR(${orClauses})`;
+	  console.log('[GET /api/related-prop] Querying Takes table with filter:', filterByFormula);
+	  const takeRecords = await base('Takes')
+		.select({
+		  filterByFormula,
+		  maxRecords: 5000,
+		})
+		.all();
+	  takenPropIDs = takeRecords
+		.map((t) => t.fields.propID)
+		.filter(Boolean);
+	  takenPropIDs = [...new Set(takenPropIDs)];
+	  console.log('[GET /api/related-prop] Found taken prop IDs:', takenPropIDs);
+	} else {
+	  console.log('[GET /api/related-prop] No Takes linked in profile.');
 	}
 
-	// 4) Filter out props user already took
 	const availableProps = propsFound.filter((propRec) => {
 	  const pf = propRec.fields;
 	  return !takenPropIDs.includes(pf.propID);
 	});
+	console.log('[GET /api/related-prop] Available props count:', availableProps.length);
 
-	// 5) Return first available or message
 	if (availableProps.length > 0) {
+	  console.log('[GET /api/related-prop] Returning available prop with propID:', availableProps[0].fields.propID);
 	  return res.json({ success: true, prop: availableProps[0].fields });
 	} else if (propsFound.length > 0) {
+	  console.log('[GET /api/related-prop] Props exist for subject, but user has taken all.');
 	  return res.json({
 		success: true,
 		prop: null,
 		message: 'No more props available, good job!',
 	  });
 	} else {
+	  console.log('[GET /api/related-prop] No props found at all.');
 	  return res.json({ success: false, error: 'No prop found' });
 	}
   } catch (err) {
@@ -726,6 +737,7 @@ app.get('/api/takes', async (req, res) => {
 // --------------------------------------
 // GET /api/props
 // --------------------------------------
+// UPDATED: Send ALL available data for each prop
 app.get('/api/props', async (req, res) => {
   try {
 	const propsRecords = await base('Props')
@@ -736,39 +748,29 @@ app.get('/api/props', async (req, res) => {
 	  const f = propRec.fields;
 	  const createdAt = propRec._rawJson.createdTime;
 
-	  // If there's a subjectLogo (attachment), fetch its url
-	  let subjectLogoUrl = '';
-	  if (Array.isArray(f.subjectLogo) && f.subjectLogo.length > 0) {
-		subjectLogoUrl = f.subjectLogo[0].url || '';
-	  }
+	  // For attachments, send arrays of URLs
+	  const subjectLogoUrls = Array.isArray(f.subjectLogo)
+		? f.subjectLogo.map((item) => item.url)
+		: [];
+	  const contentImageUrls = Array.isArray(f.contentImage)
+		? f.contentImage.map((item) => item.url)
+		: [];
 
-	  // Grab the first attachment from contentImage if present
-	  let contentImageUrl = '';
-	  if (Array.isArray(f.contentImage) && f.contentImage.length > 0) {
-		contentImageUrl = f.contentImage[0].url || '';
-	  }
-
-	  // Build “related content” array
+	  // Build related content array if present
 	  const contentTitles = f.contentTitles || [];
 	  const contentURLs = f.contentURLs || [];
-	  const cArr = contentTitles.map((title, i) => ({
+	  const content = contentTitles.map((title, i) => ({
 		contentTitle: title,
 		contentURL: contentURLs[i] || '',
 	  }));
 
+	  // Return all fields along with computed values
 	  return {
-		propID: f.propID,
-		propTitle: f.propTitle || '',
-		propSummary: f.propSummary || '',
-		propLong: f.propLong || '',
-		propStatus: f.propStatus || 'open',
+		...f,
 		createdAt,
-		PropSideAShort: f.PropSideAShort || 'Side A',
-		PropSideBShort: f.PropSideBShort || 'Side B',
-		subjectTitle: f.subjectTitle || '',
-		subjectLogoUrl,
-		contentImageUrl, // includes the new field
-		content: cArr,
+		subjectLogoUrls,
+		contentImageUrls,
+		content,
 	  };
 	});
 
@@ -779,6 +781,82 @@ app.get('/api/props', async (req, res) => {
 	  success: false,
 	  error: 'Server error fetching props',
 	});
+  }
+});
+
+// --------------------------------------
+// NEW ENDPOINT: Generate Cover Image with Puppeteer Template Approach
+// (For an HTML/CSS template-based image generation solution)
+// --------------------------------------
+/*
+  This endpoint demonstrates an approach where you create an HTML/CSS template
+  (with fixed dimensions, e.g., 900x600) and pass dynamic values (like propTitle and backgroundURL)
+  via query parameters. Puppeteer then renders this template and takes a screenshot.
+  
+  Note: For production use, consider caching and error handling.
+*/
+app.get('/api/propCoverPuppeteer', async (req, res) => {
+  const { propTitle, backgroundURL } = req.query;
+  // Use defaults if not provided
+  const title = propTitle || 'Default Title';
+  const bgURL = backgroundURL || ''; // If you have a default background image, you can set it here
+
+  // Create an HTML template
+  const htmlContent = `
+	<!DOCTYPE html>
+	<html>
+	  <head>
+		<meta charset="UTF-8" />
+		<style>
+		  body {
+			margin: 0;
+			padding: 0;
+			width: 900px;
+			height: 600px;
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			background: ${bgURL ? `url('${bgURL}') center/cover` : 'black'};
+			font-family: sans-serif;
+		  }
+		  .cover {
+			color: white;
+			font-size: 48px;
+			text-align: center;
+			padding: 20px;
+		  }
+		</style>
+	  </head>
+	  <body>
+		<div class="cover">${title}</div>
+	  </body>
+	</html>
+  `;
+
+  try {
+	// Launch Puppeteer
+	const browser = await puppeteer.launch({
+	  // Use headless mode
+	  headless: true,
+	  args: ['--no-sandbox', '--disable-setuid-sandbox']
+	});
+	const page = await browser.newPage();
+	await page.setViewport({ width: 900, height: 600 });
+
+	// Load the HTML content via a data URL
+	await page.goto(`data:text/html;charset=UTF-8,${encodeURIComponent(htmlContent)}`, {
+	  waitUntil: 'networkidle0'
+	});
+
+	// Take a screenshot
+	const screenshotBuffer = await page.screenshot({ type: 'png' });
+	await browser.close();
+
+	res.setHeader('Content-Type', 'image/png');
+	res.send(screenshotBuffer);
+  } catch (err) {
+	console.error('[api/propCoverPuppeteer] Error:', err);
+	res.status(500).json({ error: 'Server error generating cover image with Puppeteer' });
   }
 });
 

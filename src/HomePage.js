@@ -97,27 +97,28 @@ export default function HomePage() {
 			<div key={prop.propID} className="border p-4 rounded">
 			  {/* -- PROP HEADER -- */}
 			  <div style={{ display: 'flex', alignItems: 'center' }}>
-				{prop.subjectLogoUrl && (
-				  <div
-					style={{
-					  width: '40px',
-					  aspectRatio: '1/1',
-					  overflow: 'hidden',
-					  borderRadius: '4px',
-					  marginRight: '0.5rem',
-					}}
-				  >
-					<img
-					  src={prop.subjectLogoUrl}
-					  alt={prop.subjectTitle || 'Subject Logo'}
+				{prop.subjectLogoUrls &&
+				  prop.subjectLogoUrls.length > 0 && (
+					<div
 					  style={{
-						width: '100%',
-						height: '100%',
-						objectFit: 'cover',
+						width: '40px',
+						aspectRatio: '1/1',
+						overflow: 'hidden',
+						borderRadius: '4px',
+						marginRight: '0.5rem',
 					  }}
-					/>
-				  </div>
-				)}
+					>
+					  <img
+						src={prop.subjectLogoUrls[0]}
+						alt={prop.subjectTitle || 'Subject Logo'}
+						style={{
+						  width: '100%',
+						  height: '100%',
+						  objectFit: 'cover',
+						}}
+					  />
+					</div>
+				  )}
 				<h3 className="text-xl font-semibold">
 				  <Link to={`/props/${prop.propID}`} className="text-blue-600 hover:underline">
 					{prop.propTitle}
@@ -141,7 +142,7 @@ export default function HomePage() {
 
 			  {/* -- IMAGE OR PLACEHOLDER (clickable) -- */}
 			  <div style={{ marginTop: '1rem' }}>
-				{prop.contentImageUrl ? (
+				{prop.contentImageUrls && prop.contentImageUrls.length > 0 ? (
 				  <Link to={`/props/${prop.propID}`}>
 					<div
 					  style={{
@@ -153,7 +154,7 @@ export default function HomePage() {
 					  }}
 					>
 					  <img
-						src={prop.contentImageUrl}
+						src={prop.contentImageUrls[0]}
 						alt="Prop content"
 						style={{
 						  width: '100%',
@@ -188,11 +189,11 @@ export default function HomePage() {
 			  {/* -- PROP SUMMARY -- */}
 			  <p className="mt-2">{prop.propSummary}</p>
 
-			  {/* -- "MAKE THE TAKE" LONG TEXT -- */}
+			  {/* -- "MAKE THE TAKE" SHORT TEXT (updated) -- */}
 			  <p className="mt-2 text-sm font-semibold">Make The Take:</p>
 			  <p>
 				<Link to={`/props/${prop.propID}`} className="text-blue-600 hover:underline">
-				  {prop.propLong}
+				  {prop.propShort}
 				</Link>
 			  </p>
 

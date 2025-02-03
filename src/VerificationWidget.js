@@ -39,17 +39,13 @@ function Choice({
   const isVerifiedSide = userSide && sideValue === userSide;
   const hasSelectedContrarian = userSide && selectedChoice && selectedChoice !== userSide;
 
-  // Decide if clickable
   let clickable = false;
   if (propStatus === 'open') {
 	if (!userSide) {
-	  // no verified side => everything is clickable
 	  clickable = true;
 	} else if (isVerifiedSide) {
-	  // only clickable if user has "selected contrarian"
 	  clickable = hasSelectedContrarian;
 	} else {
-	  // contrarian side => always clickable if open
 	  clickable = true;
 	}
   }
@@ -59,22 +55,14 @@ function Choice({
   const baseBorder = '1px solid #ddd';
   const hoverBorder = '1px solid #aaa';
 
-  // Fill bar for results
   const fillOpacity = showResults ? (isSelected ? 1 : 0.4) : 0;
   const fillColor = `rgba(219, 234, 254, ${fillOpacity})`;
   const fillWidth = showResults ? `${percentage}%` : '0%';
 
-  // If gradedSide is "A" or "B", prepend ✅ or ❌
   let displayedLabel = label;
   if (gradedSide) {
-	if (sideValue === gradedSide) {
-	  displayedLabel = '✅ ' + displayedLabel;
-	} else {
-	  displayedLabel = '❌ ' + displayedLabel;
-	}
+	displayedLabel = sideValue === gradedSide ? '✅ ' + displayedLabel : '❌ ' + displayedLabel;
   }
-
-  // If highlightUser => prepend "🏴‍☠️"
   if (highlightUser) {
 	displayedLabel = '🏴‍☠️ ' + displayedLabel;
   }
@@ -98,7 +86,6 @@ function Choice({
 		transition: 'border-color 0.2s ease',
 	  }}
 	>
-	  {/* Fill bar for results */}
 	  <div
 		style={{
 		  position: 'absolute',
@@ -145,7 +132,6 @@ function PropChoices({
 	  {choices.map((choice) => {
 		const isSelected = selectedChoice === choice.value;
 		const highlightUser = userSide === choice.value;
-
 		return (
 		  <Choice
 			key={choice.value}
@@ -169,14 +155,15 @@ function PropChoices({
 }
 
 // --------------------------------------
-// 4) PhoneNumberForm
+// 4) PhoneNumberForm (Updated)
 // --------------------------------------
-function PhoneNumberForm({ phoneNumber, onSubmit, selectedChoice }) {
+// Now, the button is active as long as the phone number is valid,
+// regardless of whether a side is selected.
+function PhoneNumberForm({ phoneNumber, onSubmit }) {
   const [localPhone, setLocalPhone] = useState(phoneNumber);
   const numericPhone = localPhone.replace(/\D/g, '');
   const isPhoneValid = numericPhone.length === 10;
-  const hasSide = selectedChoice !== '';
-  const isDisabled = !isPhoneValid || !hasSide;
+  const isDisabled = !isPhoneValid;
 
   async function handleSend() {
 	try {
@@ -198,8 +185,6 @@ function PhoneNumberForm({ phoneNumber, onSubmit, selectedChoice }) {
   return (
 	<div className="mb-4">
 	  <label className="block mb-2">Phone Number</label>
-
-	  {/* Flex container with vertical layout on mobile, horizontal on sm+ */}
 	  <div className="flex flex-col sm:flex-row w-full gap-2">
 		<InputMask
 		  mask="(999) 999-9999"
@@ -214,7 +199,6 @@ function PhoneNumberForm({ phoneNumber, onSubmit, selectedChoice }) {
 			/>
 		  )}
 		</InputMask>
-
 		<button
 		  onClick={handleSend}
 		  disabled={isDisabled}
@@ -245,7 +229,7 @@ function VerificationForm({ phoneNumber, selectedChoice, propID, onComplete }) {
 	  return;
 	}
 	try {
-	  // 1) Verify the code
+	  // Verify the code
 	  const verifyResp = await fetch('/api/verifyCode', {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
@@ -256,15 +240,13 @@ function VerificationForm({ phoneNumber, selectedChoice, propID, onComplete }) {
 		console.error('Code verification failed');
 		return;
 	  }
-
-	  // 2) If verified, fetch /api/me
+	  // Fetch the logged-in user info
 	  const meResp = await fetch('/api/me', { credentials: 'include' });
 	  const meData = await meResp.json();
 	  if (meData.loggedIn && meData.user) {
 		setLoggedInUser(meData.user);
 	  }
-
-	  // 3) Create the take
+	  // Create the take
 	  const takeBody = {
 		takeMobile: phoneNumber,
 		propID,
@@ -284,8 +266,6 @@ function VerificationForm({ phoneNumber, selectedChoice, propID, onComplete }) {
 		console.error('Failed to create the take');
 		return;
 	  }
-
-	  // 4) Fire parent callback
 	  onComplete(takeData.newTakeID, {
 		success: true,
 		sideACount: takeData.sideACount,
@@ -298,7 +278,7 @@ function VerificationForm({ phoneNumber, selectedChoice, propID, onComplete }) {
 
   function handleResend() {
 	console.log(`[VerificationForm] Resending code to "${phoneNumber}"...`);
-	// You can implement a similar call to /api/sendCode if you like
+	// Optionally implement a resend call here
   }
 
   return (
@@ -319,7 +299,6 @@ function VerificationForm({ phoneNumber, selectedChoice, propID, onComplete }) {
 			/>
 		  )}
 		</InputMask>
-
 		<button
 		  onClick={handleVerify}
 		  className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
@@ -342,20 +321,16 @@ function VerificationForm({ phoneNumber, selectedChoice, propID, onComplete }) {
 // --------------------------------------
 function MakeTakeButton({ selectedChoice, propID, onTakeComplete, loggedInUser, alreadyTookSide }) {
   const [confirming, setConfirming] = useState(false);
-
   const userHasExistingTake = !!alreadyTookSide;
   const isSameSideAsVerified = userHasExistingTake && selectedChoice === alreadyTookSide;
   const disabled = !selectedChoice || isSameSideAsVerified;
   const buttonLabel = userHasExistingTake ? 'Update Take' : 'Make The Take';
 
   async function handleClick() {
-	// First click => set "confirming"
 	if (!confirming) {
 	  setConfirming(true);
 	  return;
 	}
-
-	// Second click => perform the take or update
 	try {
 	  const body = {
 		takeMobile: loggedInUser.phone,
@@ -379,7 +354,6 @@ function MakeTakeButton({ selectedChoice, propID, onTakeComplete, loggedInUser, 
 		setConfirming(false);
 		return;
 	  }
-
 	  onTakeComplete(data.newTakeID, {
 		success: true,
 		sideACount: data.sideACount,
@@ -419,8 +393,8 @@ function MakeTakeButton({ selectedChoice, propID, onTakeComplete, loggedInUser, 
 // --------------------------------------
 function CompleteStep({ takeID }) {
   if (!takeID) return null;
-  const takeUrl = window.location.origin + '/takes/' + takeID;
-  const tweetText = `I just made my take! Check it out:\n\n${takeUrl} #MakeTheTake`;
+  const takeUrl = `/takes/${takeID}`;
+  const tweetText = `I just made my take! Check it out:\n\n${window.location.origin + takeUrl} #MakeTheTake`;
   const tweetHref = `https://twitter.com/intent/tweet?text=${encodeURIComponent(tweetText)}`;
 
   return (
@@ -428,9 +402,9 @@ function CompleteStep({ takeID }) {
 	  <h3 className="font-semibold">Thanks!</h3>
 	  <p>Your take was logged successfully.</p>
 	  <p>
-		<a href={`/takes/${takeID}`} target="_blank" rel="noreferrer">
+		<Link to={takeUrl} className="text-blue-600 underline">
 		  View your new take here
-		</a>
+		</Link>
 	  </p>
 	  <p>
 		<a
@@ -449,10 +423,7 @@ function CompleteStep({ takeID }) {
 // --------------------------------------
 // 8) Main VerificationWidget
 // --------------------------------------
-export default function VerificationWidget({
-  embeddedPropID,
-  redirectOnSuccess = false,
-}) {
+export default function VerificationWidget({ embeddedPropID, redirectOnSuccess = false }) {
   const { loggedInUser } = useContext(UserContext);
   const navigate = useNavigate();
   const location = useLocation();
@@ -472,6 +443,9 @@ export default function VerificationWidget({
   const [alreadyTookTakeID, setAlreadyTookTakeID] = useState(null);
   const [alreadyTookSide, setAlreadyTookSide] = useState(null);
   const [lastUpdated, setLastUpdated] = useState(new Date());
+
+  // Persistent login status line
+  const loginStatus = loggedInUser ? `Logged in as ${loggedInUser.phone}` : 'Not logged in';
 
   // (1) Load the prop data
   useEffect(() => {
@@ -532,7 +506,6 @@ export default function VerificationWidget({
 	  setSideACount(freshData.sideACount || 0);
 	  setSideBCount(freshData.sideBCount || 0);
 	}
-
 	if (redirectOnSuccess) {
 	  navigate(`/takes/${newTakeID}`);
 	} else {
@@ -544,7 +517,6 @@ export default function VerificationWidget({
   // Local selection
   function handleSelectChoice(choiceValue) {
 	if (choiceValue === selectedChoice) {
-	  // if user re-clicks same side => deselect
 	  setSelectedChoice('');
 	  setResultsRevealed(false);
 	} else {
@@ -564,10 +536,12 @@ export default function VerificationWidget({
   const { aPct, bPct } = computeSidePercents(sideACount, sideBCount);
   const totalTakes = sideACount + sideBCount + 2;
 
-  // ============ Render the widget with minimal padding on mobile ============
   return (
 	<div className="mx-auto w-full sm:max-w-md px-2 sm:px-4 py-2 sm:py-4">
 	  <div className="bg-white shadow-md rounded p-2 sm:p-4">
+		{/* Persistent Login Status */}
+		<div className="mb-4 text-sm text-gray-600">{loginStatus}</div>
+
 		{/* ------------------------------------------
 			#1 Non-open scenario
 		------------------------------------------ */}
@@ -597,6 +571,7 @@ export default function VerificationWidget({
 			selectedChoice={selectedChoice}
 			handleSelectChoice={handleSelectChoice}
 			loggedInUser={loggedInUser}
+			alreadyTookTakeID={alreadyTookTakeID}
 			alreadyTookSide={alreadyTookSide}
 			handleComplete={handleComplete}
 			lastUpdated={lastUpdated}
@@ -669,13 +644,12 @@ function NonOpenProp({
   else if (propData.propStatus === 'closed') isClosed = true;
 
   const userSide = alreadyTookSide || '';
-  const userTakeLink = alreadyTookTakeID
-	? `${window.location.origin}/takes/${alreadyTookTakeID}`
-	: null;
+  const userTakeLink = alreadyTookTakeID ? `/takes/${alreadyTookTakeID}` : null;
 
   let statusMessage = 'No more voting. Here are the final results:';
   if (isClosed) {
-	statusMessage = 'No more voting while we wait for a final result. Here’s the partial tally so far:';
+	statusMessage =
+	  'No more voting while we wait for a final result. Here’s the partial tally so far:';
   }
 
   return (
@@ -686,16 +660,17 @@ function NonOpenProp({
 		</Link>
 	  </h2>
 	  <p>{statusMessage}</p>
-
 	  {alreadyTookTakeID && (
 		<p className="mt-2">
 		  You’ve already made this take.{' '}
-		  <a href={userTakeLink} target="_blank" rel="noreferrer">
-			View your take here
-		  </a>.
+		  {userTakeLink && (
+			<Link to={userTakeLink} className="text-blue-600 underline">
+			  View your take here
+			</Link>
+		  )}
+		  .
 		</p>
 	  )}
-
 	  <p className="mt-4 font-bold">Total Takes: {totalTakes}</p>
 	  <PropChoices
 		propStatus={isClosed ? 'closed' : 'graded'}
@@ -709,16 +684,6 @@ function NonOpenProp({
 		sideBLabel={propData.PropSideBShort}
 		userSide={userSide}
 	  />
-
-	  {!userSide && (
-		<p className="text-sm mt-4">
-		  Already made this take?{' '}
-		  <Link to="/login" className="text-blue-600 underline">
-			Log in to see it
-		  </Link>
-		</p>
-	  )}
-
 	  <div className="text-sm text-gray-600 mt-4">
 		Last Updated: {lastUpdated.toLocaleString()}
 	  </div>
@@ -733,16 +698,14 @@ function AlreadyTookOpen({
   selectedChoice,
   handleSelectChoice,
   loggedInUser,
+  alreadyTookTakeID,
   alreadyTookSide,
   handleComplete,
   lastUpdated,
 }) {
   const { aPct: existingA, bPct: existingB } = computeSidePercents(sideACount, sideBCount);
   const existingTotal = sideACount + sideBCount + 2;
-  const takeUrl = window.location.origin + '/takes/' + propData.propID; // or better: alreadyTookTakeID
-  // Usually you'd use alreadyTookTakeID for the URL if you want a direct link:
-  // const takeUrl = `${window.location.origin}/takes/${alreadyTookTakeID}`
-
+  const takeUrl = alreadyTookTakeID ? `/takes/${alreadyTookTakeID}` : `/takes/${propData.propID}`;
   return (
 	<>
 	  <h2 className="text-xl font-bold mb-2">
@@ -752,11 +715,10 @@ function AlreadyTookOpen({
 	  </h2>
 	  <p>You’ve Already Made This Take (the prop is open, so feel free to change):</p>
 	  <p className="mt-2">
-		<a href={takeUrl} target="_blank" rel="noreferrer">
+		<Link to={takeUrl} className="text-blue-600 underline">
 		  View your existing take here
-		</a>
+		</Link>
 	  </p>
-
 	  <p className="mt-4 font-bold">Total Takes: {existingTotal}</p>
 	  <PropChoices
 		propStatus="open"
@@ -769,7 +731,6 @@ function AlreadyTookOpen({
 		sideBLabel={propData.PropSideBShort}
 		userSide={alreadyTookSide}
 	  />
-
 	  {loggedInUser && (
 		<MakeTakeButton
 		  selectedChoice={selectedChoice}
@@ -779,16 +740,6 @@ function AlreadyTookOpen({
 		  alreadyTookSide={alreadyTookSide}
 		/>
 	  )}
-
-	  {!loggedInUser && (
-		<p className="text-sm mt-4">
-		  Already made this take?{' '}
-		  <Link to="/login" className="text-blue-600 underline">
-			Log in to see it
-		  </Link>
-		</p>
-	  )}
-
 	  <div className="text-sm text-gray-600 mt-4">
 		Last Updated: {lastUpdated.toLocaleString()}
 	  </div>
@@ -811,7 +762,6 @@ function CompleteStepLayout({
 }) {
   const { aPct: freshA, bPct: freshB } = computeSidePercents(sideACount, sideBCount);
   const freshTotal = sideACount + sideBCount + 2;
-
   return (
 	<>
 	  <h2 className="text-xl font-bold mb-2">
@@ -819,11 +769,8 @@ function CompleteStepLayout({
 		  {propData.propShort}
 		</Link>
 	  </h2>
-
 	  <CompleteStep takeID={takeID} />
-
 	  <p className="mt-4 font-bold">Total Takes: {freshTotal}</p>
-
 	  {selectedChoice && (
 		<PropChoices
 		  propStatus={propStatus === 'open' ? 'open' : 'alreadyTook'}
@@ -838,7 +785,6 @@ function CompleteStepLayout({
 		  userSide={selectedChoice}
 		/>
 	  )}
-
 	  {propStatus === 'open' && loggedInUser && (
 		<MakeTakeButton
 		  selectedChoice={selectedChoice}
@@ -848,16 +794,11 @@ function CompleteStepLayout({
 		  alreadyTookSide={alreadyTookSide || selectedChoice}
 		/>
 	  )}
-
 	  {!loggedInUser && (
 		<p className="text-sm mt-4">
-		  Already made this take?{' '}
-		  <Link to="/login" className="text-blue-600 underline">
-			Log in to see it
-		  </Link>
+		  Please use the verification form above to log in.
 		</p>
 	  )}
-
 	  <div className="text-sm text-gray-600 mt-4">
 		Last Updated: {lastUpdated.toLocaleString()}
 	  </div>
@@ -889,7 +830,6 @@ function NormalOpenLayout({
 		  {propData.propShort}
 		</Link>
 	  </h2>
-
 	  <PropChoices
 		propStatus="open"
 		gradedSide=""
@@ -902,9 +842,7 @@ function NormalOpenLayout({
 		sideBLabel={propData.PropSideBShort}
 		userSide=""
 	  />
-
 	  <div className="font-bold">Total Takes: {totalTakes}</div>
-
 	  {loggedInUser ? (
 		<MakeTakeButton
 		  selectedChoice={selectedChoice}
@@ -922,7 +860,6 @@ function NormalOpenLayout({
 				setPhoneNumber(phone);
 				setCurrentStep('code');
 			  }}
-			  selectedChoice={selectedChoice}
 			/>
 		  )}
 		  {currentStep === 'code' && (
@@ -935,16 +872,6 @@ function NormalOpenLayout({
 		  )}
 		</>
 	  )}
-
-	  {!loggedInUser && (
-		<p className="text-sm mt-4">
-		  Already made this take?{' '}
-		  <Link to="/login" className="text-blue-600 underline">
-			Log in to see it
-		  </Link>
-		</p>
-	  )}
-
 	  <div className="text-sm text-gray-600 mt-4">
 		Last Updated: {lastUpdated.toLocaleString()}
 	  </div>
