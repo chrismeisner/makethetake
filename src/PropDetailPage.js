@@ -48,7 +48,7 @@ export default function PropDetailPage() {
 
   return (
 	<div style={{ padding: '1rem', maxWidth: '800px', margin: '0 auto' }}>
-	  {/* 
+	  {/*
 		The static meta tags are now provided in your public/index.html.
 		The Helmet component is removed so that social scrapers get the 
 		static OG data.
