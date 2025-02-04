@@ -49,13 +49,25 @@ export default function PropDetailPage() {
 
   return (
 	<div style={{ padding: '1rem', maxWidth: '800px', margin: '0 auto' }}>
-	  {/* Open Graph meta tags for social sharing */}
+	  {/* 
+		Hard-coded fallback meta tags. 
+		This ensures that something is present in the initial HTML — 
+		iMessage and other link unfurlers do NOT run React code or fetch new data.
+	  */}
 	  <Helmet>
-		<meta property="og:image" content={coverImageUrl} />
-		<meta property="og:title" content={propData.propTitle} />
-		<meta property="og:description" content={propData.propSummary} />
+		<meta property="og:image" content="https://via.placeholder.com/1200x630.png?text=Placeholder+Preview" />
+		<meta property="og:title" content="Placeholder Title" />
+		<meta property="og:description" content="Placeholder description just for testing iMessage previews." />
 		<meta property="twitter:card" content="summary_large_image" />
 	  </Helmet>
+
+	  {/* You can also keep the dynamic tags here if you want to see them in the DOM:
+		 <Helmet>
+		   <meta property="og:image" content={coverImageUrl} />
+		   <meta property="og:title" content={propData.propTitle} />
+		   <meta property="og:description" content={propData.propSummary} />
+		 </Helmet>
+	  */}
 
 	  {/* Prop Title */}
 	  <h1>{propData.propTitle}</h1>
