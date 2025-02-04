@@ -1,4 +1,3 @@
-// File: src/PropDetailPage.js
 import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { Helmet } from 'react-helmet';
@@ -11,7 +10,9 @@ export default function PropDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
+  // Fetch the prop data from /api/prop
   useEffect(() => {
+	setLoading(true);
 	fetch(`/api/prop?propID=${encodeURIComponent(propID)}`)
 	  .then((res) => res.json())
 	  .then((data) => {
@@ -29,15 +30,21 @@ export default function PropDetailPage() {
 	  });
   }, [propID]);
 
+  // Auto-hit /api/prop-cover to ensure the PNG is generated or cached
+  useEffect(() => {
+	if (propData) {
+	  fetch(`/api/prop-cover/${propID}`)
+		.then(() => console.log(`Cover image generated/served for prop ${propID}`))
+		.catch((err) => console.error('Error generating cover:', err));
+	}
+  }, [propID, propData]);
+
   if (loading) return <div>Loading prop...</div>;
   if (error) return <div style={{ color: 'red' }}>{error}</div>;
   if (!propData) return <div>Prop not found.</div>;
 
-  // Construct the cover image URL.
-  // Since the endpoint now always returns a red background, we don't append any query parameters.
-  const coverImageUrl = `${window.location.origin}/api/propCoverPuppeteer`;
-
-  // Log the generated cover image URL for debugging purposes
+  // Our dynamic route for the OG image
+  const coverImageUrl = `${window.location.origin}/api/prop-cover/${propID}`;
   console.log('Cover image URL:', coverImageUrl);
 
   return (
@@ -47,6 +54,7 @@ export default function PropDetailPage() {
 		<meta property="og:image" content={coverImageUrl} />
 		<meta property="og:title" content={propData.propTitle} />
 		<meta property="og:description" content={propData.propSummary} />
+		<meta property="twitter:card" content="summary_large_image" />
 	  </Helmet>
 
 	  {/* Prop Title */}
@@ -84,7 +92,9 @@ export default function PropDetailPage() {
 	  </div>
 
 	  {/* Prop Summary */}
-	  <p style={{ fontSize: '1.1rem', marginBottom: '1rem' }}>{propData.propSummary}</p>
+	  <p style={{ fontSize: '1.1rem', marginBottom: '1rem' }}>
+		{propData.propSummary}
+	  </p>
 
 	  {/* Verification Widget for Voting */}
 	  <section style={{ marginBottom: '1rem' }}>

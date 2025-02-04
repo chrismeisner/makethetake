@@ -1,12 +1,11 @@
-// File: server.js
-
 require('dotenv').config();
 const path = require('path');
+const fs = require('fs');
 const express = require('express');
 const twilio = require('twilio');
 const Airtable = require('airtable');
 const session = require('express-session');
-const puppeteer = require('puppeteer'); // Puppeteer for screenshot generation
+const puppeteer = require('puppeteer');
 
 const app = express();
 app.use(express.json());
@@ -181,13 +180,11 @@ app.get('/api/prop', async (req, res) => {
 	const pf = propRec.fields;
 	const createdAt = propRec._rawJson.createdTime;
 
-	// Extract the first image from the "subjectLogo" field.
 	let subjectLogoUrl = '';
 	if (pf.subjectLogo && Array.isArray(pf.subjectLogo) && pf.subjectLogo.length > 0) {
 	  subjectLogoUrl = pf.subjectLogo[0].url || '';
 	}
 
-	// For the content image, use the lookup field "contentImage" and take the first image.
 	let contentImageUrl = '';
 	if (Array.isArray(pf.contentImage) && pf.contentImage.length > 0) {
 	  contentImageUrl = pf.contentImage[0].url || '';
@@ -223,7 +220,6 @@ app.get('/api/prop', async (req, res) => {
 	return res.json({
 	  success: true,
 	  propID,
-	  // Send all fields from the Airtable record along with computed values:
 	  ...pf,
 	  createdAt,
 	  subjectLogoUrl,
@@ -739,7 +735,6 @@ app.get('/api/takes', async (req, res) => {
 // --------------------------------------
 // GET /api/props
 // --------------------------------------
-// UPDATED: Send ALL available data for each prop
 app.get('/api/props', async (req, res) => {
   try {
 	const propsRecords = await base('Props')
@@ -750,7 +745,6 @@ app.get('/api/props', async (req, res) => {
 	  const f = propRec.fields;
 	  const createdAt = propRec._rawJson.createdTime;
 
-	  // For attachments, send arrays of URLs
 	  const subjectLogoUrls = Array.isArray(f.subjectLogo)
 		? f.subjectLogo.map((item) => item.url)
 		: [];
@@ -758,7 +752,6 @@ app.get('/api/props', async (req, res) => {
 		? f.contentImage.map((item) => item.url)
 		: [];
 
-	  // Build related content array if present
 	  const contentTitles = f.contentTitles || [];
 	  const contentURLs = f.contentURLs || [];
 	  const content = contentTitles.map((title, i) => ({
@@ -766,7 +759,6 @@ app.get('/api/props', async (req, res) => {
 		contentURL: contentURLs[i] || '',
 	  }));
 
-	  // Return all fields along with computed values
 	  return {
 		...f,
 		createdAt,
@@ -787,52 +779,134 @@ app.get('/api/props', async (req, res) => {
 });
 
 // --------------------------------------
-// NEW ENDPOINT: Generate Cover Image with Puppeteer Template Approach (Simplified)
+// New Endpoint: /api/prop-cover/:propID
+// Generates OR serves a local PNG for this prop
 // --------------------------------------
-app.get('/api/propCoverPuppeteer', async (req, res) => {
-  // We no longer use any query parameters.
-  // This endpoint always returns an image with a red background.
-  const fullURL = `${req.protocol}://${req.get('host')}${req.originalUrl}`;
-  console.log(`[propCoverPuppeteer] Request URL: ${fullURL}`);
+app.get('/api/prop-cover/:propID', async (req, res) => {
+  const { propID } = req.params;
+  console.log(`[prop-cover] Starting for propID=${propID}`);
 
-  const htmlContent = `
-	<!DOCTYPE html>
-	<html>
+  try {
+	// Path where we'll store the screenshot
+	const screenshotsDir = path.join(__dirname, 'screenshots');
+	await fs.promises.mkdir(screenshotsDir, { recursive: true });
+
+	const filePath = path.join(screenshotsDir, `prop-cover-${propID}.png`);
+
+	// 1) If we already have a PNG on disk, serve it immediately
+	if (fs.existsSync(filePath)) {
+	  console.log(`[prop-cover] Found existing screenshot, serving from disk: ${filePath}`);
+	  return res.sendFile(filePath);
+	}
+
+	// 2) Otherwise, fetch the prop from Airtable
+	console.log('[prop-cover] Querying Airtable for that prop...');
+	const propRecords = await base('Props')
+	  .select({ filterByFormula: `{propID}="${propID}"`, maxRecords: 1 })
+	  .all();
+
+	console.log(`[prop-cover] Prop records found: ${propRecords.length}`);
+	if (!propRecords.length) {
+	  console.log('[prop-cover] No matching prop found, returning 404.');
+	  return res.status(404).send('Prop not found');
+	}
+
+	const propFields = propRecords[0].fields;
+	const { propTitle, propSummary, subjectTitle, contentImage } = propFields;
+
+	let contentImageUrl = '';
+	if (Array.isArray(contentImage) && contentImage.length > 0) {
+	  contentImageUrl = contentImage[0].url;
+	  console.log(`[prop-cover] Found contentImage: ${contentImageUrl}`);
+	} else {
+	  console.log('[prop-cover] No contentImage found.');
+	}
+
+	// 3) Construct HTML for Puppeteer (1200x630 recommended)
+	console.log('[prop-cover] Constructing HTML content...');
+	const htmlContent = `
+	  <!DOCTYPE html>
+	  <html lang="en">
 	  <head>
 		<meta charset="UTF-8" />
+		<title>Cover for Prop ${propID}</title>
 		<style>
-		  body {
-			margin: 0;
-			padding: 0;
-			width: 900px;
-			height: 600px;
-			background: red;
+		  @import url('https://fonts.googleapis.com/css2?family=Open+Sans:wght@600&display=swap');
+		  * {
+			box-sizing: border-box; margin: 0; padding: 0;
+		  }
+		  html, body {
+			width: 1200px; height: 630px;
+			margin: 0; padding: 0;
+			font-family: 'Open Sans', sans-serif;
+		  }
+		  .container {
+			width: 1200px; height: 630px;
+			display: flex; flex-direction: column;
+			align-items: center; justify-content: center;
+			text-align: center;
+			background: #333; color: #fff;
+			padding: 40px;
+		  }
+		  h1 { font-size: 48px; margin-bottom: 20px; }
+		  h2 { font-size: 28px; margin-bottom: 10px; }
+		  p  { font-size: 24px; margin-bottom: 20px; }
+		  .image-container {
+			margin: 20px 0;
+		  }
+		  .image-container img {
+			max-width: 500px;
+			max-height: 300px;
+			object-fit: cover;
 		  }
 		</style>
 	  </head>
 	  <body>
+		<div class="container">
+		  <h1>${propTitle || 'Untitled Prop'}</h1>
+		  <h2>${subjectTitle || ''}</h2>
+		  <p>${propSummary || ''}</p>
+		  <div class="image-container">
+			${contentImageUrl ? `<img src="${contentImageUrl}" alt="Prop Image" />` : ''}
+		  </div>
+		</div>
 	  </body>
-	</html>
-  `;
+	  </html>
+	`;
 
-  try {
+	// 4) Launch Puppeteer & screenshot
+	console.log('[prop-cover] Launching Puppeteer...');
 	const browser = await puppeteer.launch({
 	  headless: true,
-	  args: ['--no-sandbox', '--disable-setuid-sandbox']
+	  args: ['--no-sandbox', '--disable-setuid-sandbox'],
+	  executablePath: process.env.CHROME_BIN // if needed on some hosts
 	});
 	const page = await browser.newPage();
-	await page.setViewport({ width: 900, height: 600 });
-	await page.goto(`data:text/html;charset=UTF-8,${encodeURIComponent(htmlContent)}`, {
-	  waitUntil: 'networkidle0'
+	console.log('[prop-cover] Puppeteer newPage() created. Setting viewport...');
+	await page.setViewport({ width: 1200, height: 630 });
+	console.log('[prop-cover] Navigating to data: URL...');
+	await page.goto(`data:text/html,${encodeURIComponent(htmlContent)}`, {
+	  waitUntil: 'networkidle0',
 	});
+	console.log('[prop-cover] HTML loaded, taking screenshot...');
+
 	const screenshotBuffer = await page.screenshot({ type: 'png' });
+	console.log(`[prop-cover] Screenshot done. Buffer length=${screenshotBuffer.length}`);
+
 	await browser.close();
+	console.log('[prop-cover] Puppeteer closed browser.');
+
+	// 5) Save the PNG locally & serve
+	await fs.promises.writeFile(filePath, screenshotBuffer);
+	console.log(`[prop-cover] Screenshot saved locally at: ${filePath}`);
 
 	res.setHeader('Content-Type', 'image/png');
+	console.log('[prop-cover] Sending screenshot to client...');
 	res.send(screenshotBuffer);
+
   } catch (err) {
-	console.error('[propCoverPuppeteer] Error:', err);
-	res.status(500).json({ error: 'Server error generating cover image with Puppeteer' });
+	console.error('[prop-cover] Error generating prop cover:', err);
+	res.status(500).send('Error generating image');
   }
 });
 
