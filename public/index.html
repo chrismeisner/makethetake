@@ -17,6 +17,17 @@
     <meta name="twitter:description" content="Vote on your favorite proposition and see real-time results." />
     <meta name="twitter:image" content="https://placehold.co/1200x630" />
 
+    <!-- Debug script to log meta tags to the console (for development only) -->
+    <script>
+      document.addEventListener('DOMContentLoaded', function () {
+        const metaTags = document.querySelectorAll('meta[property^="og:"], meta[name^="twitter:"]');
+        console.log('Social meta tag data (what Facebook/Twitter would see):');
+        metaTags.forEach((tag) => {
+          console.log(tag.getAttribute('property') || tag.getAttribute('name'), ':', tag.getAttribute('content'));
+        });
+      });
+    </script>
+
     <!-- Other head elements such as stylesheets -->
   </head>
   <body>

@@ -11,13 +11,16 @@ export default function PropDetailPage() {
 
   // Fetch the prop data from /api/prop
   useEffect(() => {
+	console.log(`Fetching prop data for propID=${propID}...`);
 	setLoading(true);
 	fetch(`/api/prop?propID=${encodeURIComponent(propID)}`)
 	  .then((res) => res.json())
 	  .then((data) => {
 		if (!data.success) {
+		  console.error('Error loading prop data:', data.error);
 		  setError(data.error || 'Error loading prop.');
 		} else {
+		  console.log('Prop data received:', data);
 		  setPropData(data);
 		}
 		setLoading(false);
@@ -32,6 +35,7 @@ export default function PropDetailPage() {
   // Auto-hit /api/prop-cover to ensure the PNG is generated or cached
   useEffect(() => {
 	if (propData) {
+	  console.log(`Requesting cover image for propID=${propID}...`);
 	  fetch(`/api/prop-cover/${propID}`)
 		.then(() => console.log(`Cover image generated/served for prop ${propID}`))
 		.catch((err) => console.error('Error generating cover:', err));
