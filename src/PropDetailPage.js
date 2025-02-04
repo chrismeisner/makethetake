@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { Helmet } from 'react-helmet';
 import VerificationWidget from './VerificationWidget';
 import RelatedProp from './RelatedProp';
 
@@ -43,30 +42,16 @@ export default function PropDetailPage() {
   if (error) return <div style={{ color: 'red' }}>{error}</div>;
   if (!propData) return <div>Prop not found.</div>;
 
-  // Our dynamic route for the OG image
+  // Our dynamic route for the OG image (for debugging purposes)
   const coverImageUrl = `${window.location.origin}/api/prop-cover/${propID}`;
   console.log('Cover image URL:', coverImageUrl);
 
   return (
 	<div style={{ padding: '1rem', maxWidth: '800px', margin: '0 auto' }}>
 	  {/* 
-		Hard-coded fallback meta tags. 
-		This ensures that something is present in the initial HTML — 
-		iMessage and other link unfurlers do NOT run React code or fetch new data.
-	  */}
-	  <Helmet>
-		<meta property="og:image" content="https://via.placeholder.com/1200x630.png?text=Placeholder+Preview" />
-		<meta property="og:title" content="Placeholder Title" />
-		<meta property="og:description" content="Placeholder description just for testing iMessage previews." />
-		<meta property="twitter:card" content="summary_large_image" />
-	  </Helmet>
-
-	  {/* You can also keep the dynamic tags here if you want to see them in the DOM:
-		 <Helmet>
-		   <meta property="og:image" content={coverImageUrl} />
-		   <meta property="og:title" content={propData.propTitle} />
-		   <meta property="og:description" content={propData.propSummary} />
-		 </Helmet>
+		The static meta tags are now provided in your public/index.html.
+		The Helmet component is removed so that social scrapers get the 
+		static OG data.
 	  */}
 
 	  {/* Prop Title */}
