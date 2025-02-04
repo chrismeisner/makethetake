@@ -1,4 +1,4 @@
-// File: src/HomePage.js
+// File: /Users/chrismeisner/Projects/make-the-take/src/HomePage.js
 
 import React from 'react';
 import { Link } from 'react-router-dom';

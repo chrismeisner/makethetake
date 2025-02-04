@@ -1,38 +1,37 @@
 <!DOCTYPE html>
 <html lang="en">
   <head>
-    <meta charset="UTF-8" />
+    <meta charset="utf-8" />
+    <!-- Your existing favicon or use the default -->
+    <link rel="icon" href="%PUBLIC_URL%/favicon.ico" />
+
+    <!-- Viewport for responsive design -->
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <!-- Simple static title -->
     <title>Make The Take</title>
 
-    <!-- Open Graph Meta Tags for Social Previews -->
+    <!-- 
+      STATIC Open Graph & Twitter meta tags so 
+      EVERY route has the same preview.
+    -->
+    <!-- Open Graph (Facebook, LinkedIn, etc.) -->
+    <meta property="og:type" content="website" />
     <meta property="og:title" content="Make The Take - Your Daily Prop Voting App" />
     <meta property="og:description" content="Vote on your favorite proposition and see real-time results." />
     <meta property="og:image" content="https://placehold.co/1200x630" />
     <meta property="og:url" content="https://make-the-take-app-db5f17d09089.herokuapp.com/" />
 
-    <!-- Twitter Card Meta Tags -->
+    <!-- Twitter Card -->
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="Make The Take - Your Daily Prop Voting App" />
     <meta name="twitter:description" content="Vote on your favorite proposition and see real-time results." />
     <meta name="twitter:image" content="https://placehold.co/1200x630" />
 
-    <!-- Debug script to log meta tags to the console (for development only) -->
-    <script>
-      document.addEventListener('DOMContentLoaded', function () {
-        const metaTags = document.querySelectorAll('meta[property^="og:"], meta[name^="twitter:"]');
-        console.log('Social meta tag data (what Facebook/Twitter would see):');
-        metaTags.forEach((tag) => {
-          console.log(tag.getAttribute('property') || tag.getAttribute('name'), ':', tag.getAttribute('content'));
-        });
-      });
-    </script>
-
-    <!-- Other head elements such as stylesheets -->
   </head>
   <body>
+    <noscript>You need to enable JavaScript to run this app.</noscript>
     <div id="root"></div>
-    <!-- Your bundled React app is loaded below -->
-    <script src="static/js/bundle.js"></script>
+    <!-- CRA will inject your built JS bundle here -->
   </body>
 </html>
